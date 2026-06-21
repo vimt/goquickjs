@@ -79,6 +79,47 @@ type VM struct {
 	// runaway native ↔ JS recursion surfaces as a JS-side
 	// RangeError instead of growing the Go stack indefinitely.
 	callDepth int
+	// localsPool recycles frame-local slices by size class so deep
+	// recursion doesn't churn the allocator. We bucket by exact
+	// size up to 32 (covers virtually all real function frames);
+	// larger sizes skip the pool.
+	localsPool [33][]([]value.Value)
+}
+
+// getLocals grabs a zeroed []Value of length n, preferring a recycled
+// one from the pool. The slice is exclusive to one frame at a time.
+//
+//go:inline
+func (v *VM) getLocals(n uint16) []value.Value {
+	if n < uint16(len(v.localsPool)) {
+		bucket := v.localsPool[n]
+		if k := len(bucket); k > 0 {
+			out := bucket[k-1]
+			v.localsPool[n] = bucket[:k-1]
+			// Zero the recycled slice — caller relies on locals
+			// starting at the zero Value{} so absent params read
+			// as undefined.
+			for i := range out {
+				out[i] = value.Value{}
+			}
+			return out
+		}
+	}
+	return make([]value.Value, n)
+}
+
+// putLocals returns a frame's locals to the pool. Caller must not
+// retain the slice afterwards.
+//
+//go:inline
+func (v *VM) putLocals(s []value.Value) {
+	n := len(s)
+	if n == 0 || n >= len(v.localsPool) {
+		return
+	}
+	if len(v.localsPool[n]) < 128 {
+		v.localsPool[n] = append(v.localsPool[n], s)
+	}
 }
 
 const maxNativeReentry = 64
@@ -411,27 +452,38 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 		cur.ip++
 		switch op {
 		case bytecode.OpConstUndefined:
-			push(value.Undefined())
+			valStack = append(valStack, value.Undefined())
 		case bytecode.OpConstNull:
-			push(value.Null())
+			valStack = append(valStack, value.Null())
 		case bytecode.OpConstTrue:
-			push(value.Bool(true))
+			valStack = append(valStack, value.Bool(true))
 		case bytecode.OpConstFalse:
-			push(value.Bool(false))
+			valStack = append(valStack, value.Bool(false))
 		case bytecode.OpConstK:
 			idx := binary.LittleEndian.Uint16(cur.code[cur.ip:])
 			cur.ip += 2
-			push(cur.chunk.Constants[idx])
+			valStack = append(valStack, cur.chunk.Constants[idx])
 
 		case bytecode.OpAdd:
-			r := pop()
-			l := pop()
-			if l.Type() == value.TypeString || r.Type() == value.TypeString {
-				push(value.String(l.String() + r.String()))
-			} else if l.Type() == value.TypeBigInt && r.Type() == value.TypeBigInt {
+			// In-place: read top two slots, compute, write back to
+			// the second-from-top slot, shrink stack by one. Saves
+			// the pop/pop/push closure dance and the append's
+			// growslice check on the hot path.
+			last := len(valStack)
+			l := valStack[last-2]
+			r := valStack[last-1]
+			lt, rt := l.Type(), r.Type()
+			if lt == value.TypeNumber && rt == value.TypeNumber {
+				valStack[last-2] = value.Number(l.AsNumber() + r.AsNumber())
+				valStack = valStack[:last-1]
+			} else if lt == value.TypeString || rt == value.TypeString {
+				valStack[last-2] = value.String(l.String() + r.String())
+				valStack = valStack[:last-1]
+			} else if lt == value.TypeBigInt && rt == value.TypeBigInt {
 				ret, err := bigArith("add", l, r)
 				if err != nil {
 					if t, ok := err.(*value.JSThrow); ok {
+						valStack = valStack[:last-2]
 						newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
 						if !handled {
 							return value.Value{}, t
@@ -441,17 +493,21 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 					}
 					return value.Value{}, err
 				}
-				push(ret)
+				valStack[last-2] = ret
+				valStack = valStack[:last-1]
 			} else {
-				push(value.Number(l.AsNumber() + r.AsNumber()))
+				valStack[last-2] = value.Number(l.AsNumber() + r.AsNumber())
+				valStack = valStack[:last-1]
 			}
 		case bytecode.OpSub:
-			r := pop()
-			l := pop()
+			last := len(valStack)
+			l := valStack[last-2]
+			r := valStack[last-1]
 			if l.Type() == value.TypeBigInt && r.Type() == value.TypeBigInt {
 				ret, err := bigArith("sub", l, r)
 				if err != nil {
 					if t, ok := err.(*value.JSThrow); ok {
+						valStack = valStack[:last-2]
 						newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
 						if !handled {
 							return value.Value{}, t
@@ -461,17 +517,20 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 					}
 					return value.Value{}, err
 				}
-				push(ret)
+				valStack[last-2] = ret
 			} else {
-				push(value.Number(l.AsNumber() - r.AsNumber()))
+				valStack[last-2] = value.Number(l.AsNumber() - r.AsNumber())
 			}
+			valStack = valStack[:last-1]
 		case bytecode.OpMul:
-			r := pop()
-			l := pop()
+			last := len(valStack)
+			l := valStack[last-2]
+			r := valStack[last-1]
 			if l.Type() == value.TypeBigInt && r.Type() == value.TypeBigInt {
 				ret, err := bigArith("mul", l, r)
 				if err != nil {
 					if t, ok := err.(*value.JSThrow); ok {
+						valStack = valStack[:last-2]
 						newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
 						if !handled {
 							return value.Value{}, t
@@ -481,17 +540,20 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 					}
 					return value.Value{}, err
 				}
-				push(ret)
+				valStack[last-2] = ret
 			} else {
-				push(value.Number(l.AsNumber() * r.AsNumber()))
+				valStack[last-2] = value.Number(l.AsNumber() * r.AsNumber())
 			}
+			valStack = valStack[:last-1]
 		case bytecode.OpDiv:
-			r := pop()
-			l := pop()
+			last := len(valStack)
+			l := valStack[last-2]
+			r := valStack[last-1]
 			if l.Type() == value.TypeBigInt && r.Type() == value.TypeBigInt {
 				ret, err := bigArith("div", l, r)
 				if err != nil {
 					if t, ok := err.(*value.JSThrow); ok {
+						valStack = valStack[:last-2]
 						newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
 						if !handled {
 							return value.Value{}, t
@@ -501,17 +563,20 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 					}
 					return value.Value{}, err
 				}
-				push(ret)
+				valStack[last-2] = ret
 			} else {
-				push(value.Number(l.AsNumber() / r.AsNumber()))
+				valStack[last-2] = value.Number(l.AsNumber() / r.AsNumber())
 			}
+			valStack = valStack[:last-1]
 		case bytecode.OpMod:
-			r := pop()
-			l := pop()
+			last := len(valStack)
+			l := valStack[last-2]
+			r := valStack[last-1]
 			if l.Type() == value.TypeBigInt && r.Type() == value.TypeBigInt {
 				ret, err := bigArith("mod", l, r)
 				if err != nil {
 					if t, ok := err.(*value.JSThrow); ok {
+						valStack = valStack[:last-2]
 						newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
 						if !handled {
 							return value.Value{}, t
@@ -521,17 +586,20 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 					}
 					return value.Value{}, err
 				}
-				push(ret)
+				valStack[last-2] = ret
 			} else {
-				push(value.Number(jsMod(l.AsNumber(), r.AsNumber())))
+				valStack[last-2] = value.Number(jsModFast(l.AsNumber(), r.AsNumber()))
 			}
+			valStack = valStack[:last-1]
 		case bytecode.OpPow:
-			r := pop()
-			l := pop()
+			last := len(valStack)
+			l := valStack[last-2]
+			r := valStack[last-1]
 			if l.Type() == value.TypeBigInt && r.Type() == value.TypeBigInt {
 				ret, err := bigArith("pow", l, r)
 				if err != nil {
 					if t, ok := err.(*value.JSThrow); ok {
+						valStack = valStack[:last-2]
 						newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
 						if !handled {
 							return value.Value{}, t
@@ -541,10 +609,11 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 					}
 					return value.Value{}, err
 				}
-				push(ret)
+				valStack[last-2] = ret
 			} else {
-				push(value.Number(math.Pow(l.AsNumber(), r.AsNumber())))
+				valStack[last-2] = value.Number(math.Pow(l.AsNumber(), r.AsNumber()))
 			}
+			valStack = valStack[:last-1]
 		case bytecode.OpNeg:
 			x := pop()
 			if x.Type() == value.TypeBigInt {
@@ -700,37 +769,37 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 				push(value.Bool(true))
 			}
 		case bytecode.OpLt:
-			r := pop()
-			l := pop()
-			push(value.Bool(l.AsNumber() < r.AsNumber()))
+			last := len(valStack)
+			valStack[last-2] = value.Bool(valStack[last-2].AsNumber() < valStack[last-1].AsNumber())
+			valStack = valStack[:last-1]
 		case bytecode.OpLe:
-			r := pop()
-			l := pop()
-			push(value.Bool(l.AsNumber() <= r.AsNumber()))
+			last := len(valStack)
+			valStack[last-2] = value.Bool(valStack[last-2].AsNumber() <= valStack[last-1].AsNumber())
+			valStack = valStack[:last-1]
 		case bytecode.OpGt:
-			r := pop()
-			l := pop()
-			push(value.Bool(l.AsNumber() > r.AsNumber()))
+			last := len(valStack)
+			valStack[last-2] = value.Bool(valStack[last-2].AsNumber() > valStack[last-1].AsNumber())
+			valStack = valStack[:last-1]
 		case bytecode.OpGe:
-			r := pop()
-			l := pop()
-			push(value.Bool(l.AsNumber() >= r.AsNumber()))
+			last := len(valStack)
+			valStack[last-2] = value.Bool(valStack[last-2].AsNumber() >= valStack[last-1].AsNumber())
+			valStack = valStack[:last-1]
 		case bytecode.OpEq:
-			r := pop()
-			l := pop()
-			push(value.Bool(jsEqual(l, r, false)))
+			last := len(valStack)
+			valStack[last-2] = value.Bool(jsEqual(valStack[last-2], valStack[last-1], false))
+			valStack = valStack[:last-1]
 		case bytecode.OpNeq:
-			r := pop()
-			l := pop()
-			push(value.Bool(!jsEqual(l, r, false)))
+			last := len(valStack)
+			valStack[last-2] = value.Bool(!jsEqual(valStack[last-2], valStack[last-1], false))
+			valStack = valStack[:last-1]
 		case bytecode.OpStrictEq:
-			r := pop()
-			l := pop()
-			push(value.Bool(jsEqual(l, r, true)))
+			last := len(valStack)
+			valStack[last-2] = value.Bool(jsEqual(valStack[last-2], valStack[last-1], true))
+			valStack = valStack[:last-1]
 		case bytecode.OpStrictNeq:
-			r := pop()
-			l := pop()
-			push(value.Bool(!jsEqual(l, r, true)))
+			last := len(valStack)
+			valStack[last-2] = value.Bool(!jsEqual(valStack[last-2], valStack[last-1], true))
+			valStack = valStack[:last-1]
 
 		case bytecode.OpJump:
 			rel := readI16(cur.code, cur.ip)
@@ -750,13 +819,19 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 		case bytecode.OpJumpIfFalse:
 			rel := readI16(cur.code, cur.ip)
 			cur.ip += 2
-			if !truthy(pop()) {
+			n := len(valStack) - 1
+			top := valStack[n]
+			valStack = valStack[:n]
+			if !truthy(top) {
 				cur.ip += rel
 			}
 		case bytecode.OpJumpIfTrue:
 			rel := readI16(cur.code, cur.ip)
 			cur.ip += 2
-			if truthy(pop()) {
+			n := len(valStack) - 1
+			top := valStack[n]
+			valStack = valStack[:n]
+			if truthy(top) {
 				cur.ip += rel
 			}
 		case bytecode.OpJumpIfNotNullishPeek:
@@ -775,10 +850,10 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			}
 
 		case bytecode.OpDup:
-			push(valStack[len(valStack)-1])
+			valStack = append(valStack, valStack[len(valStack)-1])
 
 		case bytecode.OpLoadThis:
-			push(cur.thisVal)
+			valStack = append(valStack, cur.thisVal)
 
 		case bytecode.OpGetIterator:
 			src := pop()
@@ -995,6 +1070,7 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 				IsGenerator:   proto.IsGenerator,
 				HasArguments:  proto.HasArguments,
 				ArgumentsSlot: proto.ArgumentsSlot,
+				LocalsEscape:  proto.LocalsEscape,
 			}
 			if proto.IsArrow {
 				// Arrow captures the enclosing frame's `this`.
@@ -1129,22 +1205,26 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 		case bytecode.OpLoadLocal:
 			slot := binary.LittleEndian.Uint16(cur.code[cur.ip:])
 			cur.ip += 2
-			push(cur.locals[slot])
+			valStack = append(valStack, cur.locals[slot])
 		case bytecode.OpStoreLocal:
 			slot := binary.LittleEndian.Uint16(cur.code[cur.ip:])
 			cur.ip += 2
-			cur.locals[slot] = pop()
+			n := len(valStack) - 1
+			cur.locals[slot] = valStack[n]
+			valStack = valStack[:n]
 
 		case bytecode.OpLoadGlobal:
 			nameIdx := binary.LittleEndian.Uint16(cur.code[cur.ip:])
 			cur.ip += 2
 			name := cur.chunk.Constants[nameIdx].AsString()
-			push(v.globals[name]) // zero-value Value{} is undefined — JS semantics for missing globals
+			valStack = append(valStack, v.globals[name])
 		case bytecode.OpStoreGlobal:
 			nameIdx := binary.LittleEndian.Uint16(cur.code[cur.ip:])
 			cur.ip += 2
 			name := cur.chunk.Constants[nameIdx].AsString()
-			v.globals[name] = pop()
+			n := len(valStack) - 1
+			v.globals[name] = valStack[n]
+			valStack = valStack[:n]
 
 		case bytecode.OpCall:
 			argCount := int(cur.code[cur.ip])
@@ -1342,7 +1422,7 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			push(x)
 
 		case bytecode.OpPop:
-			pop()
+			valStack = valStack[:len(valStack)-1]
 		case bytecode.OpReturn:
 			var ret value.Value
 			if len(valStack) > cur.valStackBase {
@@ -1356,6 +1436,13 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			// promises in v.Call too).
 			if cur.function != nil && cur.function.IsAsync {
 				ret = value.MakePromiseFulfilled(ret)
+			}
+			// Recycle the returning frame's locals — but only when no
+			// nested closure captured them by reference. The compiler
+			// sets LocalsEscape=true in that case so we can leave the
+			// slice for the GC to collect once the closures die.
+			if cur.locals != nil && cur.function != nil && !cur.function.LocalsEscape {
+				v.putLocals(cur.locals)
 			}
 			// Truncate any leftover working-stack values belonging to
 			// the returning frame (e.g. a switch's discriminant when

@@ -90,6 +90,20 @@ type compiler struct {
 	// and consumed by the next loop / switch emit (which copies it
 	// into its loopFrame and clears the slot).
 	pendingLabel string
+
+	// localsEscape is flipped to true when a nested function
+	// captures one of our locals as an upvalue. The VM consults
+	// the corresponding flag on the produced Function to decide
+	// whether the locals slice can safely return to the pool on
+	// OpReturn (it can't if a closure still holds *Value into it).
+	localsEscape bool
+
+	// usesArguments flips to true the first time the body
+	// references the special `arguments` binding. We allocate the
+	// per-call Array in the VM only when this is set, saving a
+	// malloc + push loop per function call on the (very common)
+	// path where `arguments` isn't read.
+	usesArguments bool
 }
 
 func newCompiler(parent *compiler) *compiler {
@@ -141,6 +155,9 @@ func (c *compiler) declare(name string) (symRef, error) {
 }
 
 func (c *compiler) resolve(name string) symRef {
+	if name == "arguments" {
+		c.usesArguments = true
+	}
 	// 1. Local in this function's lexical scopes.
 	for i := len(c.scopes) - 1; i >= 0; i-- {
 		if slot, ok := c.scopes[i].locals[name]; ok {
@@ -163,6 +180,12 @@ func (c *compiler) resolve(name string) symRef {
 	case sGlobal:
 		return symRef{kind: sGlobal}
 	case sLocal:
+		// The parent's local is now captured by reference from us
+		// (or some descendant we routed this through). Mark the
+		// owning compiler so its produced Function refuses to pool
+		// its locals slice — the captured *Value pointer must
+		// outlive the frame.
+		c.parent.localsEscape = true
 		return symRef{kind: sUpvalue, slot: c.addUpvalue(name, parentRef.slot, true)}
 	case sUpvalue:
 		return symRef{kind: sUpvalue, slot: c.addUpvalue(name, parentRef.slot, false)}

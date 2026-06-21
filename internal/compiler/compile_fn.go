@@ -43,8 +43,9 @@ func (c *compiler) compileFunction(name string, params []parser.Param, body *par
 		Name:          name,
 		Arity:         arity,
 		HasRest:       hasRest,
-		HasArguments:  true,
+		HasArguments:  inner.usesArguments,
 		ArgumentsSlot: argRef.slot,
+		LocalsEscape:  inner.localsEscape,
 		Body:          unsafe.Pointer(inner.chunk),
 		UpvalueDescs:  inner.upvalueDescs,
 	}, nil
@@ -85,6 +86,7 @@ func (c *compiler) compileArrowFunction(x *parser.ArrowFunctionExpr) (*value.Fun
 		Body:         unsafe.Pointer(inner.chunk),
 		UpvalueDescs: inner.upvalueDescs,
 		IsArrow:      true,
+		LocalsEscape: inner.localsEscape,
 	}, nil
 }
 

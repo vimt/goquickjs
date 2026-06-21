@@ -72,6 +72,13 @@ type Function struct {
 	HasArguments bool // non-arrow fn — VM injects an Array at ArgumentsSlot
 	ArgumentsSlot uint16
 
+	// LocalsEscape is true when at least one nested function captures
+	// one of this function's locals as an upvalue. The VM uses it to
+	// decide whether the locals slice can return to the pool on
+	// OpReturn — if a closure still holds a *Value pointer into it,
+	// we must not recycle.
+	LocalsEscape bool
+
 	Props *Object
 }
 

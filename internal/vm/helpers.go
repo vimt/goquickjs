@@ -58,7 +58,7 @@ func (v *VM) doCall(
 
 	// JS function: push current frame, switch to callee.
 	fnChunk := (*bytecode.Chunk)(fn.Body)
-	newLocals := make([]value.Value, fnChunk.MaxLocals)
+	newLocals := v.getLocals(fnChunk.MaxLocals)
 	n := argCount
 	if n > fn.Arity {
 		n = fn.Arity
@@ -360,6 +360,26 @@ func setByVal(obj, key, v value.Value) error {
 		return nil
 	}
 	return fmt.Errorf("vm: SetByVal on %v: %w", obj.Type(), jserrors.ErrNotImplemented)
+}
+
+// jsModFast hot-path % for the common all-integer case (which `%`
+// in spec is allowed to fall back to native integer % on). Floats
+// or out-of-int64-range values fall through to the slower jsMod.
+//
+//go:inline
+func jsModFast(a, b float64) float64 {
+	if b == 0 {
+		return mathNaN()
+	}
+	// IEEE 754 doubles round-trip exactly through int64 for any
+	// integer in (-2^53, 2^53). That's far wider than the typical
+	// modulus arithmetic users write, so we can avoid math.Mod's
+	// frexp dance.
+	ai, bi := int64(a), int64(b)
+	if float64(ai) == a && float64(bi) == b {
+		return float64(ai % bi)
+	}
+	return mathMod(a, b)
 }
 
 // jsMod implements JS's % operator: sign follows the dividend, NaN
