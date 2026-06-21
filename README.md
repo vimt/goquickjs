@@ -60,28 +60,60 @@ fastest JS engine measured** — about 1.6× the upstream
 go get github.com/vimt/goquickjs
 ```
 
+One-shot Eval — script result as a string:
+
 ```go
-package main
-
-import (
-    "fmt"
-
-    "github.com/vimt/goquickjs"
-)
-
-func main() {
-    src := `
-      let sum = 0;
-      for (let i = 1; i <= 100; i++) sum += i;
-      sum
-    `
-    v, err := goquickjs.Eval(src)
-    if err != nil {
-        panic(err)
-    }
-    fmt.Println(v) // "5050"
-}
+v, _ := goquickjs.Eval(`
+  let sum = 0;
+  for (let i = 1; i <= 100; i++) sum += i;
+  sum
+`)
+fmt.Println(v) // "5050"
 ```
+
+Persistent Runtime — inject Go values, call Go from JS, call JS from Go:
+
+```go
+rt := goquickjs.New()
+
+// 1. Pass Go data into the JS scope.
+_ = rt.Set("name", "world")
+_ = rt.Set("nums", []int{1, 2, 3, 4})
+
+// 2. Expose a Go function callable from JS.
+rt.SetFunc("hash", func(args []goquickjs.Value) (any, error) {
+    h := uint32(0)
+    for _, c := range args[0].String() {
+        h = h*31 + uint32(c)
+    }
+    return h, nil
+})
+
+// 3. Run a script that reaches into all three.
+v, err := rt.Eval(`
+  let total = nums.reduce((a, b) => a + b, 0);
+  ` + "`" + `${name}=${total}#${hash(name)}` + "`" + `
+`)
+if err != nil { log.Fatal(err) }
+fmt.Println(v.String()) // world=10#113318802
+
+// 4. Pull a JS function out and call it from Go.
+_, _ = rt.Eval(`function mul(a, b) { return a * b }`)
+out, _ := rt.Get("mul").Call(6, 7)
+fmt.Println(out.Int()) // 42
+
+// 5. Convert any JS value back to a plain Go value.
+js, _ := rt.Eval(`({user: "alice", roles: ["admin", "dev"]})`)
+fmt.Println(js.ToGo()) // map[user:alice roles:[admin dev]]
+```
+
+`Set` understands all numeric types, string, bool, nil, `[]any`,
+`map[string]any`, `GoFunc`, and via reflection any slice / map /
+pointer of compatible element type. `Value` exposes `Int / Float /
+Bool / String`, type predicates `IsNumber / IsString / IsArray / ...`,
+indexed access `Get(key) / Index(i) / Len()`, and `Call` for
+function-typed values. A single Runtime is **not** safe for
+concurrent use — wrap with your own lock or shard one per worker.
 
 ## Architecture
 

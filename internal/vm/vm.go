@@ -157,16 +157,33 @@ var _ value.Caller = (*VM)(nil)
 // returns the program's completion value. globals may be nil; the VM
 // will create an empty map. Pre-populate globals with built-ins
 // (Math, etc.) before calling.
+//
+// Convenience wrapper around NewVM + RunChunk for one-shot Evals.
 func Run(chunk *bytecode.Chunk, globals map[string]value.Value) (value.Value, error) {
+	v := NewVM(globals)
+	return v.RunChunk(chunk)
+}
+
+// NewVM builds a fresh VM bound to the given globals map. Reuse the
+// same VM across RunChunk calls when you need persistent state (e.g.
+// a Runtime that lets the host inject Go data and re-Eval multiple
+// snippets).
+func NewVM(globals map[string]value.Value) *VM {
 	if globals == nil {
 		globals = map[string]value.Value{}
 	}
-	v := &VM{globals: globals}
-	// Wrap the top-level chunk in a synthetic Function so frame.function
-	// is never nil. Top-level OpClosure inside this proto needs to
-	// instantiate descendants with upvalues from this frame, which is
-	// only safe because top-level OpClosure descs are always empty
-	// under the globals-not-locals scope model.
+	return &VM{globals: globals}
+}
+
+// RunChunk executes one compiled program against this VM's globals.
+// Microtasks are drained at the end so async reactions settle before
+// returning.
+func (v *VM) RunChunk(chunk *bytecode.Chunk) (value.Value, error) {
+	// Wrap the top-level chunk in a synthetic Function so
+	// frame.function is never nil. Top-level OpClosure inside this
+	// proto needs to instantiate descendants with upvalues from this
+	// frame, which is only safe because top-level OpClosure descs
+	// are always empty under the globals-not-locals scope model.
 	topFn := &value.Function{Body: unsafe.Pointer(chunk)}
 	ret, err := v.invoke(topFn, value.Undefined(), nil, nil, nil)
 	v.drainMicrotasks()
