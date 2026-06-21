@@ -49,10 +49,26 @@ Treat it as a research artefact, not a production runtime:
 ## Performance
 
 In the cross-engine benchmark suite under [`benchmark/`](./benchmark)
-(arith / fib / sort / strings; see [its README](./benchmark/README.md)),
-goquickjs ranks **#2 of 13** embedded scripting engines and is **the
-fastest JS engine measured** — about 1.6× the upstream
-`modernc.org/quickjs` (CGo binding) and 2× `goja`.
+(arith / fib / sort / strings; see [its README](./benchmark/README.md)
+for env, methodology, and the full 13-engine tables), goquickjs is
+the **fastest pure-Go JS engine**, with the **smallest JS binary
+footprint** and the **lowest peak memory of any pure-Go JS engine**.
+
+| JS engine | time (ms, lower better) | peak mem | binary added |
+| --- | --- | --- | --- |
+| **goquickjs** | **58.0** | **6.0 MB** | **+1.7 MB** |
+| quickjs (CGo) | 95.6 — 1.65× slower | 1.4 MB* | +4.6 MB |
+| sobek | 103.1 — 1.78× slower | 9.4 MB | +10.5 MB |
+| goja | 104.2 — 1.80× slower | 8.6 MB | +10.3 MB |
+| paserati | 471.8 — 8.13× slower | 30.3 MB | +16.2 MB |
+| otto | 1015.9 — 17.5× slower | 11.6 MB | +4.0 MB |
+
+\* CGo allocations partly live in the C heap and don't show up in
+Go's `ru_maxrss` accounting; the real gap is smaller.
+
+Across all 13 engines (Lua / Tengo / Starlark / Yaegi / ...)
+goquickjs ranks **#2** for execution time, only `gopher-lua` is
+faster (49.3 ms — Lua's simpler type system gives it the edge).
 
 ## Quick start
 
