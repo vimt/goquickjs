@@ -1,0 +1,1 @@
+"hello".slice(-2)

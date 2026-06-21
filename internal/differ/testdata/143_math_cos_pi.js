@@ -1,0 +1,1 @@
+Math.cos(Math.PI)

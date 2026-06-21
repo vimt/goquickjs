@@ -1,0 +1,1 @@
+"aaa".replace("a", "b")

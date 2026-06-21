@@ -1,0 +1,1 @@
+Math.sinh(0)

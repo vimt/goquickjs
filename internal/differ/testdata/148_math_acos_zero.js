@@ -1,0 +1,1 @@
+Math.acos(0)

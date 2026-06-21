@@ -1,0 +1,1 @@
+Number.NEGATIVE_INFINITY < -1

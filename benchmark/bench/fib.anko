@@ -1,0 +1,16 @@
+func run() {
+	reps = __N__
+	total = 0
+	for r = 0; r < reps; r++ {
+		a = 0
+		b = 1
+		for i = 0; i < 90; i++ {
+			t = (a + b) % 1000000007
+			a = b
+			b = t
+		}
+		total = (total + a) % 1000000007
+	}
+	return total
+}
+run()

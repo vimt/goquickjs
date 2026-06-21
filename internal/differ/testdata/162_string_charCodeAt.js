@@ -1,0 +1,1 @@
+"hello".charCodeAt(0)

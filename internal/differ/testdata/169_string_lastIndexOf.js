@@ -1,0 +1,1 @@
+"hello world".lastIndexOf("o")

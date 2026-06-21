@@ -1,0 +1,14 @@
+func run() {
+    N := __N__
+    parts := []
+    for i := 0; i < N; i++ {
+        parts.append("item" + string(i % 1000))
+    }
+    s := strings.join(parts, ",")
+    sum := 0
+    for i := 0; i < len(s); i++ {
+        sum = (sum*31 + ord(s[i])) % 1000000007
+    }
+    return sum
+}
+run()

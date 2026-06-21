@@ -1,0 +1,15 @@
+# Build artifacts
+*.exe
+*.test
+*.out
+
+# Fuzz corpus (regenerable; large)
+testdata/fuzz/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
