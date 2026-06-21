@@ -1114,7 +1114,8 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			push(value.ObjectVal(value.NewObject()))
 		case bytecode.OpGetProp:
 			nameIdx := binary.LittleEndian.Uint16(cur.code[cur.ip:])
-			cur.ip += 2
+			icIdx := binary.LittleEndian.Uint16(cur.code[cur.ip+2:])
+			cur.ip += 4
 			obj := pop()
 			name := cur.chunk.Constants[nameIdx].AsString()
 			// Proxy trap: route through handler.get if present.
@@ -1139,35 +1140,56 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 				}
 				obj = value.ObjectVal(p.Target)
 			}
-			// Accessor lookup wins over the stored value slot, walking
-			// the prototype chain so a `get`-on-Foo.prototype hits
-			// when called via `new Foo().x`.
 			if obj.Type() == value.TypeObject {
-				if a := obj.AsObject().LookupAccessor(name); a != nil {
-					if a.Get != nil {
-						ret, err := v.Call(a.Get, obj, nil)
-						if err != nil {
-							if t, ok := err.(*value.JSThrow); ok {
-								newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
-								if !handled {
-									return value.Value{}, t
-								}
-								cur = newCur
-								continue
-							}
-							return value.Value{}, err
-						}
-						push(ret)
+				o := obj.AsObject()
+				// Resolve the accessor that applies, if any. An OWN accessor
+				// for `name` wins over its data slot. Absent one, an own
+				// DATA property is authoritative — it shadows every inherited
+				// accessor — so we take the inline-cache hit straight away and
+				// skip the prototype-chain accessor walk entirely. o.Accessor
+				// is a cheap nil-map check on the common (no-own-accessor)
+				// path, far cheaper than LookupAccessor's chain walk.
+				var acc *value.Accessor
+				if own := o.Accessor(name); own != nil {
+					acc = own
+				} else {
+					// Inline-cache fast path: a shape hit collapses the
+					// name→slot map lookup to a pointer compare.
+					if val, ok := o.GetOwnCached(&cur.chunk.PropCaches[icIdx], name); ok {
+						push(val)
 						continue
 					}
-					push(value.Undefined())
+					// Own-data miss: only inherited accessors/data remain.
+					acc = o.LookupAccessor(name)
+				}
+				if acc != nil {
+					if acc.Get == nil {
+						push(value.Undefined())
+						continue
+					}
+					ret, err := v.Call(acc.Get, obj, nil)
+					if err != nil {
+						if t, ok := err.(*value.JSThrow); ok {
+							newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
+							if !handled {
+								return value.Value{}, t
+							}
+							cur = newCur
+							continue
+						}
+						return value.Value{}, err
+					}
+					push(ret)
 					continue
 				}
+				push(o.GetInherited(name))
+				continue
 			}
 			push(getProp(obj, name))
 		case bytecode.OpSetProp:
 			nameIdx := binary.LittleEndian.Uint16(cur.code[cur.ip:])
-			cur.ip += 2
+			icIdx := binary.LittleEndian.Uint16(cur.code[cur.ip+2:])
+			cur.ip += 4
 			val := pop()
 			obj := pop()
 			name := cur.chunk.Constants[nameIdx].AsString()
@@ -1211,7 +1233,7 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 					push(val)
 					continue
 				}
-				obj.AsObject().Set(name, val)
+				obj.AsObject().SetCached(&cur.chunk.SetCaches[icIdx], name, val)
 			case value.TypeFunction:
 				value.FunctionSetProp(obj.AsFunction(), name, val)
 			default:

@@ -188,6 +188,20 @@ func (o *Object) Get(name string) (Value, bool) {
 	return Undefined(), false
 }
 
+// GetInherited walks only the prototype chain, skipping the receiver's
+// own properties, and returns the first match (or undefined). Callers
+// use it after an own-property lookup has already missed so the own
+// slot vector is not searched a second time. Equivalent to Get minus
+// the redundant own check.
+func (o *Object) GetInherited(name string) Value {
+	for p := o.proto; p != nil; p = p.proto {
+		if v, ok := p.GetOwn(name); ok {
+			return v
+		}
+	}
+	return Undefined()
+}
+
 // GetOwn returns the value of an own property only, never walking the
 // prototype chain. Used by builtins like Object.hasOwnProperty.
 func (o *Object) GetOwn(name string) (Value, bool) {
@@ -197,6 +211,42 @@ func (o *Object) GetOwn(name string) (Value, bool) {
 	idx := o.shape.PropIndex(name)
 	if idx < 0 {
 		return Undefined(), false
+	}
+	return o.values[idx], true
+}
+
+// PropCache is a monomorphic inline-cache cell: one per OpGetProp
+// bytecode site. It remembers the (shape, slot) resolved last time so
+// a subsequent access on an object of the same shape skips the
+// name→slot map lookup entirely. Zero value = empty cache (shape nil
+// never equals any live *Shape, so it always misses first).
+type PropCache struct {
+	shape *Shape
+	slot  int
+}
+
+// GetOwnCached is GetOwn with an inline-cache fast path. On a shape hit
+// it is a pointer compare plus a slice index — no map, no string hash.
+// On a miss it does the normal lookup and refills the cache. It only
+// reports own data properties; inherited/missing/tombstoned names fall
+// through to ok=false so the caller can walk the prototype chain.
+//
+// The cache is bypassed (and not filled) whenever the object carries
+// tombstones, because a cached slot could point at a deleted prop;
+// GetOwn's own o.deleted check then stays authoritative.
+func (o *Object) GetOwnCached(c *PropCache, name string) (Value, bool) {
+	if c.shape == o.shape && o.deleted == nil {
+		return o.values[c.slot], true
+	}
+	if o.deleted[name] {
+		return Undefined(), false
+	}
+	idx := o.shape.PropIndex(name)
+	if idx < 0 {
+		return Undefined(), false
+	}
+	if o.deleted == nil {
+		c.shape, c.slot = o.shape, idx
 	}
 	return o.values[idx], true
 }
@@ -213,6 +263,59 @@ func (o *Object) Set(name string, v Value) {
 	}
 	o.shape = o.shape.Extend(name)
 	o.values = append(o.values, v)
+}
+
+// SetCache is the OpSetProp counterpart of PropCache. A write site sees
+// the same base shape repeatedly and lands in one of two regimes:
+//
+//   - update: the incoming shape already owns name at slot — write in
+//     place, shape unchanged (newShape == nil).
+//   - add: the incoming shape transitions to newShape via Extend(name);
+//     the value is appended, so the slot is implicit (len(values)).
+//
+// Both are keyed on the incoming shape pointer, so a hit avoids the
+// name→slot map lookup and (for adds) the transitions map lookup.
+type SetCache struct {
+	shape    *Shape // incoming shape this cell matched against
+	slot     int    // write slot for the update regime
+	newShape *Shape // non-nil => add regime: o.shape becomes this
+}
+
+// SetCached is Set with an inline-cache fast path. Tombstoned objects
+// bypass the cache (and never fill it) so delete/re-add semantics stay
+// with the authoritative slow path below.
+func (o *Object) SetCached(c *SetCache, name string, v Value) {
+	if c.shape == o.shape && o.deleted == nil {
+		if c.newShape == nil {
+			o.values[c.slot] = v
+			return
+		}
+		// Add regime: newShape was o.shape.Extend(name), which assigns
+		// slot len(o.shape props). The values vector tracks that count
+		// (tombstones keep their slots), so append lands exactly there.
+		o.shape = c.newShape
+		o.values = append(o.values, v)
+		return
+	}
+
+	old := o.shape
+	tombstoned := o.deleted != nil
+	if o.deleted[name] {
+		delete(o.deleted, name)
+	}
+	if idx := old.PropIndex(name); idx >= 0 {
+		o.values[idx] = v
+		if !tombstoned {
+			c.shape, c.slot, c.newShape = old, idx, nil
+		}
+		return
+	}
+	next := old.Extend(name)
+	o.shape = next
+	o.values = append(o.values, v)
+	if !tombstoned {
+		c.shape, c.newShape = old, next
+	}
 }
 
 // Delete tombstones an own property. Returns true if the property was

@@ -561,16 +561,16 @@ func (c *compiler) emitIterLoop(name string, body parser.Node) error {
 	c.chunk.Emit(bytecode.OpDup)
 	c.chunk.Emit(bytecode.OpDup)
 	nextIdx := c.chunk.AddConstant(value.String("next"))
-	c.chunk.EmitU16(bytecode.OpGetProp, nextIdx)
+	c.chunk.EmitGetProp(nextIdx)
 	c.chunk.EmitU8(bytecode.OpCallMethod, 0)
 
 	c.chunk.Emit(bytecode.OpDup)
 	doneIdx := c.chunk.AddConstant(value.String("done"))
-	c.chunk.EmitU16(bytecode.OpGetProp, doneIdx)
+	c.chunk.EmitGetProp(doneIdx)
 	endJump := c.chunk.EmitJump(bytecode.OpJumpIfTrue)
 
 	valueIdx := c.chunk.AddConstant(value.String("value"))
-	c.chunk.EmitU16(bytecode.OpGetProp, valueIdx)
+	c.chunk.EmitGetProp(valueIdx)
 	if err := c.emitStore(ref, name); err != nil {
 		return err
 	}

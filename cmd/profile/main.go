@@ -54,6 +54,23 @@ var scripts = map[string]string{
 		}
 		mk(50000)
 	`,
+	// method calls on a user class: each a.dot / a.len2 resolves the
+	// method on Vec.prototype, i.e. an own-miss + prototype walk on
+	// every call — the workload proto-chain method ICs would target.
+	"methods": `
+		class Vec {
+			constructor(x, y) { this.x = x; this.y = y; }
+			dot(o)  { return this.x * o.x + this.y * o.y; }
+			len2()  { return this.x * this.x + this.y * this.y; }
+		}
+		let a = new Vec(1, 2);
+		let b = new Vec(3, 4);
+		let s = 0;
+		for (let i = 0; i < 300000; i++) {
+			s = (s + a.dot(b) + a.len2() + b.len2()) % 1000000007;
+		}
+		s
+	`,
 }
 
 func main() {
@@ -93,7 +110,7 @@ func main() {
 
 func pick(csv string) []string {
 	if csv == "all" {
-		return []string{"fib", "arith", "sort", "strings", "objalloc"}
+		return []string{"fib", "arith", "sort", "strings", "objalloc", "methods"}
 	}
 	var out []string
 	for _, x := range splitCSV(csv) {

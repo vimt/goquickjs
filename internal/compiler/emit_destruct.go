@@ -44,7 +44,7 @@ func (c *compiler) emitDestructure(pat parser.Pattern, src symRef, srcName strin
 			// Push src[key], applying default if undefined.
 			c.emitLoadRef(src, srcName)
 			nameIdx := c.chunk.AddConstant(value.String(prop.Key))
-			c.chunk.EmitU16(bytecode.OpGetProp, nameIdx)
+			c.chunk.EmitGetProp(nameIdx)
 			if prop.Default != nil {
 				if err := c.emitDefault(prop.Default); err != nil {
 					return err
@@ -65,7 +65,7 @@ func (c *compiler) emitDestructure(pat parser.Pattern, src symRef, srcName strin
 				c.emitLoadRef(src, srcName)
 				c.chunk.Emit(bytecode.OpDup)
 				nameIdx := c.chunk.AddConstant(value.String("slice"))
-				c.chunk.EmitU16(bytecode.OpGetProp, nameIdx)
+				c.chunk.EmitGetProp(nameIdx)
 				c.chunk.EmitU16(bytecode.OpConstK, c.chunk.AddConstant(value.Number(float64(i))))
 				c.chunk.EmitU8(bytecode.OpCallMethod, 1)
 				if err := c.emitBindTarget(elem.Target); err != nil {

@@ -214,14 +214,14 @@ func (c *compiler) emitClassDecl(x *parser.ClassDecl, keepLastExpr bool) error {
 	if x.Parent != nil {
 		c.chunk.EmitU16(bytecode.OpLoadGlobal, c.chunk.AddConstant(value.String("Object")))
 		c.chunk.Emit(bytecode.OpDup)
-		c.chunk.EmitU16(bytecode.OpGetProp, c.chunk.AddConstant(value.String("setPrototypeOf")))
+		c.chunk.EmitGetProp(c.chunk.AddConstant(value.String("setPrototypeOf")))
 		c.emitLoadRef(classRef, x.Name)
 		protoName := c.chunk.AddConstant(value.String("prototype"))
-		c.chunk.EmitU16(bytecode.OpGetProp, protoName)
+		c.chunk.EmitGetProp(protoName)
 		if err := c.emit(x.Parent); err != nil {
 			return err
 		}
-		c.chunk.EmitU16(bytecode.OpGetProp, protoName)
+		c.chunk.EmitGetProp(protoName)
 		c.chunk.EmitU8(bytecode.OpCallMethod, 2)
 		c.chunk.Emit(bytecode.OpPop)
 	}
@@ -237,7 +237,7 @@ func (c *compiler) emitClassDecl(x *parser.ClassDecl, keepLastExpr bool) error {
 		}
 		c.emitLoadRef(classRef, x.Name)
 		if !m.IsStatic {
-			c.chunk.EmitU16(bytecode.OpGetProp, c.chunk.AddConstant(value.String("prototype")))
+			c.chunk.EmitGetProp(c.chunk.AddConstant(value.String("prototype")))
 		}
 		c.chunk.EmitU16(bytecode.OpClosure, c.chunk.AddConstant(value.FunctionVal(methodFn)))
 		nameIdx := c.chunk.AddConstant(value.String(m.Name))
@@ -247,7 +247,7 @@ func (c *compiler) emitClassDecl(x *parser.ClassDecl, keepLastExpr bool) error {
 		case "set":
 			c.chunk.EmitU16(bytecode.OpDefineSetter, nameIdx)
 		default:
-			c.chunk.EmitU16(bytecode.OpSetProp, nameIdx)
+			c.chunk.EmitSetProp(nameIdx)
 		}
 		c.chunk.Emit(bytecode.OpPop)
 	}

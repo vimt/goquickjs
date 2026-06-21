@@ -271,6 +271,12 @@ type Chunk struct {
 	Constants []value.Value
 	MaxLocals uint16
 	Handlers  []Handler
+	// PropCaches backs the inline caches for OpGetProp. Each OpGetProp
+	// carries a u16 index into this slice (allocated by EmitGetProp).
+	// One cell per site; populated lazily by the VM at run time.
+	PropCaches []value.PropCache
+	// SetCaches is the OpSetProp counterpart, indexed by EmitSetProp.
+	SetCaches []value.SetCache
 }
 
 // AddHandler records a try-region. Called by the compiler after the
@@ -287,6 +293,29 @@ func (c *Chunk) Emit(op Op) {
 // EmitU16 appends an opcode followed by a little-endian u16 operand.
 func (c *Chunk) EmitU16(op Op, arg uint16) {
 	c.Code = append(c.Code, byte(op), byte(arg), byte(arg>>8))
+}
+
+// EmitGetProp appends OpGetProp with two u16 operands: the name
+// constant index and a freshly-allocated inline-cache index. Every
+// OpGetProp must go through here so its IC cell exists.
+func (c *Chunk) EmitGetProp(nameIdx uint16) {
+	ic := uint16(len(c.PropCaches))
+	c.PropCaches = append(c.PropCaches, value.PropCache{})
+	c.Code = append(c.Code,
+		byte(OpGetProp),
+		byte(nameIdx), byte(nameIdx>>8),
+		byte(ic), byte(ic>>8))
+}
+
+// EmitSetProp appends OpSetProp with two u16 operands: the name
+// constant index and a freshly-allocated set-cache index.
+func (c *Chunk) EmitSetProp(nameIdx uint16) {
+	ic := uint16(len(c.SetCaches))
+	c.SetCaches = append(c.SetCaches, value.SetCache{})
+	c.Code = append(c.Code,
+		byte(OpSetProp),
+		byte(nameIdx), byte(nameIdx>>8),
+		byte(ic), byte(ic>>8))
 }
 
 // EmitU8 appends an opcode followed by a single-byte operand.

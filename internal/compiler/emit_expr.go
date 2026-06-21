@@ -151,7 +151,7 @@ func (c *compiler) emit(n parser.Node) error {
 		// skip branch can Pop+ConstUndefined.
 		skipJump := c.chunk.EmitJump(bytecode.OpJumpIfNullishPeek)
 		nameIdx := c.chunk.AddConstant(value.String(x.Prop))
-		c.chunk.EmitU16(bytecode.OpGetProp, nameIdx)
+		c.chunk.EmitGetProp(nameIdx)
 		endJump := c.chunk.EmitJump(bytecode.OpJump)
 		if err := c.chunk.PatchJump(skipJump); err != nil {
 			return err
@@ -278,7 +278,7 @@ func (c *compiler) emit(n parser.Node) error {
 				return err
 			}
 			nameIdx := c.chunk.AddConstant(value.String(tgt.Prop))
-			c.chunk.EmitU16(bytecode.OpSetProp, nameIdx)
+			c.chunk.EmitSetProp(nameIdx)
 		case *parser.IndexExpr:
 			if err := c.emit(tgt.Obj); err != nil {
 				return err
@@ -370,7 +370,7 @@ func (c *compiler) emit(n parser.Node) error {
 				return err
 			}
 			nameIdx := c.chunk.AddConstant(value.String(prop.Key))
-			c.chunk.EmitU16(bytecode.OpSetProp, nameIdx)
+			c.chunk.EmitSetProp(nameIdx)
 			c.chunk.Emit(bytecode.OpPop)
 		}
 
@@ -379,7 +379,7 @@ func (c *compiler) emit(n parser.Node) error {
 			return err
 		}
 		nameIdx := c.chunk.AddConstant(value.String(x.Prop))
-		c.chunk.EmitU16(bytecode.OpGetProp, nameIdx)
+		c.chunk.EmitGetProp(nameIdx)
 
 	case *parser.FunctionExpr:
 		fn, err := c.compileFunction(x.Name, x.Params, x.Body)
@@ -477,7 +477,7 @@ func (c *compiler) emit(n parser.Node) error {
 				}
 				c.chunk.Emit(bytecode.OpDup)
 				nameIdx := c.chunk.AddConstant(value.String(callee.Prop))
-				c.chunk.EmitU16(bytecode.OpGetProp, nameIdx)
+				c.chunk.EmitGetProp(nameIdx)
 				// stack: [recv, fn]; reorder to [fn, recv]
 				c.chunk.Emit(bytecode.OpSwap)
 			case *parser.IndexExpr:
@@ -522,7 +522,7 @@ func (c *compiler) emit(n parser.Node) error {
 			}
 			c.chunk.Emit(bytecode.OpDup)
 			nameIdx := c.chunk.AddConstant(value.String(callee.Prop))
-			c.chunk.EmitU16(bytecode.OpGetProp, nameIdx)
+			c.chunk.EmitGetProp(nameIdx)
 			for _, arg := range x.Args {
 				if err := c.emit(arg); err != nil {
 					return err

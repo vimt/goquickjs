@@ -14,3 +14,8 @@ testdata/fuzz/
 # OS
 .DS_Store
 benchmark/benchmark
+
+# Agent guidance (local, not part of the library)
+CLAUDE.md
+*.prof
+cpu.prof
