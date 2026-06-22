@@ -13,6 +13,25 @@ import (
 // IdentTarget, and recursing into nested patterns. Defaults are
 // applied when the read value is exactly undefined.
 func (c *compiler) emitDestructure(pat parser.Pattern, src symRef, srcName string) error {
+	return c.emitDestructureMode(pat, src, srcName, bindDeclare)
+}
+
+// emitDestructureAssign is the assignment-expression flavour:
+// destructure src into EXISTING bindings (resolved, not declared) so
+// `({a, b} = obj)` writes to the existing a, b. Used by emit_expr.go's
+// AssignExpr Pattern target.
+func (c *compiler) emitDestructureAssign(pat parser.Pattern, src symRef, srcName string) error {
+	return c.emitDestructureMode(pat, src, srcName, bindAssign)
+}
+
+type bindMode int
+
+const (
+	bindDeclare bindMode = iota // let/const/var or function param: declare new
+	bindAssign                  // destructuring assignment: resolve existing
+)
+
+func (c *compiler) emitDestructureMode(pat parser.Pattern, src symRef, srcName string, mode bindMode) error {
 	switch p := pat.(type) {
 	case *parser.ObjectPattern:
 		consumed := map[string]bool{}
@@ -31,11 +50,7 @@ func (c *compiler) emitDestructure(pat parser.Pattern, src symRef, srcName strin
 					c.chunk.EmitU16(bytecode.OpDeleteProp, nameIdx)
 					c.chunk.Emit(bytecode.OpPop)
 				}
-				ref, err := c.declare(prop.Target.(*parser.IdentTarget).Name)
-				if err != nil {
-					return err
-				}
-				if err := c.emitStore(ref, prop.Target.(*parser.IdentTarget).Name); err != nil {
+				if err := c.emitBindTargetMode(prop.Target, mode); err != nil {
 					return err
 				}
 				continue
@@ -50,7 +65,7 @@ func (c *compiler) emitDestructure(pat parser.Pattern, src symRef, srcName strin
 					return err
 				}
 			}
-			if err := c.emitBindTarget(prop.Target); err != nil {
+			if err := c.emitBindTargetMode(prop.Target, mode); err != nil {
 				return err
 			}
 		}
@@ -68,7 +83,7 @@ func (c *compiler) emitDestructure(pat parser.Pattern, src symRef, srcName strin
 				c.chunk.EmitGetProp(nameIdx)
 				c.chunk.EmitU16(bytecode.OpConstK, c.chunk.AddConstant(value.Number(float64(i))))
 				c.chunk.EmitU8(bytecode.OpCallMethod, 1)
-				if err := c.emitBindTarget(elem.Target); err != nil {
+				if err := c.emitBindTargetMode(elem.Target, mode); err != nil {
 					return err
 				}
 				return nil
@@ -81,7 +96,7 @@ func (c *compiler) emitDestructure(pat parser.Pattern, src symRef, srcName strin
 					return err
 				}
 			}
-			if err := c.emitBindTarget(elem.Target); err != nil {
+			if err := c.emitBindTargetMode(elem.Target, mode); err != nil {
 				return err
 			}
 		}
@@ -116,10 +131,20 @@ func (c *compiler) emitDefault(def parser.Node) error {
 
 // emitBindTarget consumes TOS — the freshly-pulled value — and binds
 // it to the pattern target: declare + store for an Ident; recursive
-// destructure for a Nested.
+// destructure for a Nested. Kept for callers that always want the
+// declare flavour (function params, let/const declarations); the mode
+// variant below is used by destructuring assignment.
 func (c *compiler) emitBindTarget(t parser.PatternTarget) error {
+	return c.emitBindTargetMode(t, bindDeclare)
+}
+
+func (c *compiler) emitBindTargetMode(t parser.PatternTarget, mode bindMode) error {
 	switch tt := t.(type) {
 	case *parser.IdentTarget:
+		if mode == bindAssign {
+			ref := c.resolve(tt.Name)
+			return c.emitStore(ref, tt.Name)
+		}
 		ref, err := c.declare(tt.Name)
 		if err != nil {
 			return err
@@ -135,7 +160,7 @@ func (c *compiler) emitBindTarget(t parser.PatternTarget) error {
 		if err := c.emitStore(tmp, name); err != nil {
 			return err
 		}
-		return c.emitDestructure(tt.Pattern, tmp, name)
+		return c.emitDestructureMode(tt.Pattern, tmp, name, mode)
 	}
 	return fmt.Errorf("compiler: unknown pattern target %T", t)
 }

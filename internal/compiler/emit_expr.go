@@ -220,6 +220,28 @@ func (c *compiler) emit(n parser.Node) error {
 		c.chunk.Emit(bytecode.OpGetByVal)
 
 	case *parser.AssignExpr:
+		// Destructuring assignment: `({a, b} = src)` / `([x, y] = src)`.
+		// Parser already converted the LHS literal to a Pattern. Stash
+		// the rhs into a hidden temp so emitDestructureAssign can read
+		// it by name, then leave the rhs on stack as the completion.
+		if pat, ok := x.Target.(parser.Pattern); ok {
+			if err := c.emit(x.Value); err != nil {
+				return err
+			}
+			c.chunk.Emit(bytecode.OpDup) // keep one copy as the completion value
+			srcName := c.tempName()
+			srcRef, err := c.declare(srcName)
+			if err != nil {
+				return err
+			}
+			if err := c.emitStore(srcRef, srcName); err != nil {
+				return err
+			}
+			if err := c.emitDestructureAssign(pat, srcRef, srcName); err != nil {
+				return err
+			}
+			break
+		}
 		switch tgt := x.Target.(type) {
 		case *parser.Ident:
 			ref := c.resolve(tgt.Name)

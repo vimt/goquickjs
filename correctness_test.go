@@ -196,6 +196,31 @@ func TestPrimitiveCtorsCoerce(t *testing.T) {
 	}
 }
 
+// Destructuring assignment at expression position: parser now coerces
+// `{...}` / `[...]` on the LHS of `=` into a Pattern, and the compiler
+// emits resolve+store (not declare+store).
+func TestDestructuringAssignment(t *testing.T) {
+	cases := map[string]string{
+		// Object: simple, renamed, nested, with rest.
+		`var a,b; ({a, b} = {a:1, b:2}); a + ":" + b`:                   "1:2",
+		`var x,y; ({a: x, b: y} = {a:7, b:8}); x + ":" + y`:             "7:8",
+		`var p,q,r; ({a:{p, q}, r} = {a:{p:1,q:2}, r:3}); p+":"+q+":"+r`: "1:2:3",
+		`var a, rest; ({a, ...rest} = {a:1, b:2, c:3}); a + ":" + rest.b + ":" + rest.c`: "1:2:3",
+		// Array: simple, hole, rest.
+		`var x,y,z; [x,y,z] = [1,2,3]; x+":"+y+":"+z`:           "1:2:3",
+		`var x, r; [x, ...r] = [1,2,3,4]; x + ":" + r.join(",")`: "1:2,3,4",
+		// Completion value of an assignment expression is the rhs.
+		`var a,b; var v = ({a, b} = {a:5, b:6}); v.a + ":" + v.b`: "5:6",
+		// Chained assignment uses the completion value.
+		`var a,b,c; c = ({a, b} = {a:1, b:2}); a + ":" + b + ":" + (c.a+c.b)`: "1:2:3",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,

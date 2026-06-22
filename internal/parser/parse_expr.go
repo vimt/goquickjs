@@ -74,6 +74,22 @@ func (p *parser) parseAssignment() (Node, error) {
 		// Both plain `=` and compound (`+=`, `*=`, `||=`, ...) are
 		// emitted by the compiler — it dups the receiver, loads the
 		// current value, applies the op, then stores back.
+	case *ObjectLit, *ArrayLit:
+		// Destructuring assignment: `{a, b} = obj` or `[x, y] = arr`.
+		// Only plain `=` is meaningful — compound ops on a pattern
+		// have no spec semantics. Convert the literal to a Pattern.
+		if op != "=" {
+			return nil, fmt.Errorf("parser: compound op on destructuring pattern is not valid")
+		}
+		pat, err := coerceExprToPattern(left)
+		if err != nil {
+			return nil, err
+		}
+		rhs, err := p.parseAssignment()
+		if err != nil {
+			return nil, err
+		}
+		return &AssignExpr{Op: op, Target: pat, Value: rhs}, nil
 	default:
 		return nil, fmt.Errorf("parser: invalid assignment target: %w", jserrors.ErrNotImplemented)
 	}
