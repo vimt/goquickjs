@@ -67,8 +67,14 @@ type IdentTarget struct{ Name string }
 // NestedTarget recursively destructures into the inner pattern.
 type NestedTarget struct{ Pattern Pattern }
 
+// ExprTarget is a MemberExpr / IndexExpr leaf — only legal in
+// destructuring ASSIGNMENT (`({a: o.x} = src)`), never in a declaration
+// pattern. The compiler emits the corresponding SetProp / SetByVal.
+type ExprTarget struct{ Expr Node }
+
 func (*IdentTarget) patternTargetMarker()  {}
 func (*NestedTarget) patternTargetMarker() {}
+func (*ExprTarget) patternTargetMarker()   {}
 
 type ObjectPattern struct{ Props []ObjectPatternProp }
 type ArrayPattern struct{ Elements []ArrayPatternElem }

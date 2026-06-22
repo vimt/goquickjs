@@ -248,6 +248,9 @@ func TestDestructuringAssignment(t *testing.T) {
 		`var a,b; var v = ({a, b} = {a:5, b:6}); v.a + ":" + v.b`: "5:6",
 		// Chained assignment uses the completion value.
 		`var a,b,c; c = ({a, b} = {a:1, b:2}); a + ":" + b + ":" + (c.a+c.b)`: "1:2:3",
+		// Member / index targets as destructuring leaves.
+		`var o={x:0,y:0}; ({a: o.x, b: o.y} = {a:1, b:2}); o.x + ":" + o.y`: "1:2",
+		`var a=[0,0]; [a[0], a[1]] = [9, 8]; a.join(",")`:                   "9,8",
 		// Defaults: object-shorthand and array.
 		`var a,b; ({a = 1, b = 2} = {}); a + ":" + b`:                "1:2",
 		`var a,b; ({a = 1, b = 2} = {b: 99}); a + ":" + b`:           "1:99",

@@ -172,6 +172,36 @@ func (c *compiler) emitBindTargetMode(t parser.PatternTarget, mode bindMode) err
 			return err
 		}
 		return c.emitStore(ref, tt.Name)
+	case *parser.ExprTarget:
+		// Only valid in assignment mode. Emit `tt.Expr = TOS` by
+		// stashing TOS into a temp local and re-emitting the assignment
+		// against the temp — cheaper than rotating obj/key/value with
+		// only OpDup/OpSwap.
+		if mode != bindAssign {
+			return fmt.Errorf("compiler: member/index destructuring leaf only valid in assignment")
+		}
+		name := c.tempName()
+		tmp, err := c.declare(name)
+		if err != nil {
+			return err
+		}
+		if err := c.emitStore(tmp, name); err != nil {
+			return err
+		}
+		// Synthesize `tt.Expr = tmp`. Re-emit via the existing
+		// AssignExpr path (which knows the obj/key sequencing). The
+		// AssignExpr leaves the completion (rhs value) on TOS for
+		// statement use — discard it so the stack matches what other
+		// pattern targets leave behind (nothing).
+		if err := c.emit(&parser.AssignExpr{
+			Op:     "=",
+			Target: tt.Expr,
+			Value:  &parser.Ident{Name: name},
+		}); err != nil {
+			return err
+		}
+		c.chunk.Emit(bytecode.OpPop)
+		return nil
 	case *parser.NestedTarget:
 		// Stash TOS into a fresh named binding, then recurse.
 		name := c.tempName()

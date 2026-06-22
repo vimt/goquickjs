@@ -236,6 +236,11 @@ func coerceExprToPatternTarget(n Node) (PatternTarget, error) {
 			return nil, err
 		}
 		return &NestedTarget{Pattern: nested}, nil
+	case *MemberExpr, *IndexExpr:
+		// Only valid in destructuring ASSIGNMENT. The mode-aware
+		// emitBindTarget rejects this leaf when used in a declaration
+		// pattern (let/var/param), preserving the original semantics.
+		return &ExprTarget{Expr: e}, nil
 	}
-	return nil, fmt.Errorf("parser: destructuring leaf must be an identifier")
+	return nil, fmt.Errorf("parser: destructuring leaf must be an identifier or member access")
 }
