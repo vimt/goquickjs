@@ -30,7 +30,7 @@ func numberCoerce(_ value.Caller, _ value.Value, args []value.Value) (value.Valu
 	if len(args) == 0 {
 		return value.Number(0), nil
 	}
-	return value.Number(args[0].AsNumber()), nil
+	return value.Number(toNumber(args, 0)), nil
 }
 
 func installNumber(globals map[string]value.Value) {
