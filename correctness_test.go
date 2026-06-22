@@ -171,6 +171,31 @@ func TestIdentifierUnicodeEscapes(t *testing.T) {
 	}
 }
 
+// String/Number/Boolean must be callable as ToPrimitive coercion
+// functions: `String(1) === "1"`, `Number("3") === 3`, `Boolean(0) === false`.
+func TestPrimitiveCtorsCoerce(t *testing.T) {
+	cases := map[string]string{
+		`typeof String`:   "function",
+		`typeof Number`:   "function",
+		`typeof Boolean`:  "function",
+		`String(1)`:       "1",
+		`String(null)`:    "null",
+		`String()`:        "",
+		`Number("3")`:     "3",
+		`Number(true)`:    "1",
+		`Number()`:        "0",
+		`Boolean(0)`:      "false",
+		`Boolean("x")`:    "true",
+		`Boolean()`:       "false",
+		`Boolean(null)`:   "false",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,

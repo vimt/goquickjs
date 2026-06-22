@@ -24,8 +24,19 @@ const (
 	minSafeInteger = -9007199254740991 // -(2^53 - 1)
 )
 
+// numberCoerce implements `Number(x)` as the spec ToNumber coercion.
+// `new Number(x)` returns the same primitive (no wrapper Object).
+func numberCoerce(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {
+	if len(args) == 0 {
+		return value.Number(0), nil
+	}
+	return value.Number(args[0].AsNumber()), nil
+}
+
 func installNumber(globals map[string]value.Value) {
-	ctor := value.NewObject()
+	fn := &value.Function{Name: "Number", Arity: 1, Native: numberCoerce}
+	fn.Props = value.NewObject()
+	ctor := fn.Props
 
 	// Numeric constants.
 	ctor.Set("NaN", value.Number(math.NaN()))
@@ -50,7 +61,7 @@ func installNumber(globals map[string]value.Value) {
 	ctor.Set("parseInt", nativeFn("parseInt", 2, numberParseInt))
 	ctor.Set("prototype", exposeProto(value.NumberProto))
 
-	globals["Number"] = value.ObjectVal(ctor)
+	globals["Number"] = value.FunctionVal(fn)
 }
 
 func registerNumberPrototype() {

@@ -20,12 +20,24 @@ import (
 )
 
 func installString(globals map[string]value.Value) {
-	ctor := value.NewObject()
-	// Static methods.
-	ctor.Set("fromCharCode", nativeFn("fromCharCode", 1, strFromCharCode))
-	ctor.Set("fromCodePoint", nativeFn("fromCodePoint", 1, strFromCodePoint))
-	ctor.Set("prototype", exposeProto(value.StringProto))
-	globals["String"] = value.ObjectVal(ctor)
+	// String is a Function so `String(x)` works as the spec-defined
+	// ToString coercion. `new String(x)` returns the same primitive
+	// (rather than a wrapper Object) — tests that check the wrapper
+	// shape will still diverge, but the far more common coercion form
+	// is what test262 relies on.
+	ctor := &value.Function{Name: "String", Arity: 1, Native: stringCoerce}
+	ctor.Props = value.NewObject()
+	ctor.Props.Set("fromCharCode", nativeFn("fromCharCode", 1, strFromCharCode))
+	ctor.Props.Set("fromCodePoint", nativeFn("fromCodePoint", 1, strFromCodePoint))
+	ctor.Props.Set("prototype", exposeProto(value.StringProto))
+	globals["String"] = value.FunctionVal(ctor)
+}
+
+func stringCoerce(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {
+	if len(args) == 0 {
+		return value.String(""), nil
+	}
+	return value.String(args[0].String()), nil
 }
 
 func registerStringPrototype() {

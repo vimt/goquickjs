@@ -13,18 +13,36 @@ import (
 )
 
 // installFunctionAndBoolean attaches the Function and Boolean
-// constructors to globals. They currently exist only for their
-// .prototype reflection surface (no `new Function(...)` /
-// `new Boolean(...)` yet) — enough for test262 patterns that probe
-// `Function.prototype.X` or `typeof Boolean.prototype`.
+// constructors. Boolean is callable for the spec ToBoolean coercion;
+// Function remains a no-op surface for now (no `new Function(src)`
+// support, but `.prototype` is reachable so reflection-style probes
+// work).
 func installFunctionAndBoolean(globals map[string]value.Value) {
 	fnCtor := value.NewObject()
 	fnCtor.Set("prototype", exposeProto(value.FunctionProto))
 	globals["Function"] = value.ObjectVal(fnCtor)
 
-	boolCtor := value.NewObject()
-	boolCtor.Set("prototype", value.ObjectVal(value.NewObject()))
-	globals["Boolean"] = value.ObjectVal(boolCtor)
+	boolFn := &value.Function{Name: "Boolean", Arity: 1, Native: booleanCoerce}
+	boolFn.Props = value.NewObject()
+	boolFn.Props.Set("prototype", value.ObjectVal(value.NewObject()))
+	globals["Boolean"] = value.FunctionVal(boolFn)
+}
+
+func booleanCoerce(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {
+	if len(args) == 0 {
+		return value.Bool(false), nil
+	}
+	v := args[0]
+	switch v.Type() {
+	case value.TypeUndefined, value.TypeNull:
+		return value.Bool(false), nil
+	case value.TypeBool, value.TypeNumber:
+		f := v.AsNumber()
+		return value.Bool(f != 0 && f == f), nil
+	case value.TypeString:
+		return value.Bool(v.AsString() != ""), nil
+	}
+	return value.Bool(true), nil
 }
 
 func registerFunctionPrototype() {
