@@ -213,6 +213,11 @@ func TestDestructuringAssignment(t *testing.T) {
 		`var a,b; var v = ({a, b} = {a:5, b:6}); v.a + ":" + v.b`: "5:6",
 		// Chained assignment uses the completion value.
 		`var a,b,c; c = ({a, b} = {a:1, b:2}); a + ":" + b + ":" + (c.a+c.b)`: "1:2:3",
+		// Defaults: object-shorthand and array.
+		`var a,b; ({a = 1, b = 2} = {}); a + ":" + b`:                "1:2",
+		`var a,b; ({a = 1, b = 2} = {b: 99}); a + ":" + b`:           "1:99",
+		`var x,y; [x = 5, y = 6] = []; x + ":" + y`:                   "5:6",
+		`var x,y; [x = 5, y = 6] = [10]; x + ":" + y`:                 "10:6",
 	}
 	for src, want := range cases {
 		if got := mustEval(t, src); got != want {

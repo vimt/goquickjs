@@ -836,9 +836,20 @@ func (p *parser) parseObjectLit() (Node, error) {
 			continue
 		}
 		// Shorthand: `{a, b}` ↔ `{a: a, b: b}`. Detected when the
-		// token after the key isn't a colon — could be `,` `}` `=`.
+		// token after the key isn't a colon — could be `,` `}`, or
+		// `=` (destructuring-assign default like `{a = 1}` which
+		// coerces into a Pattern at the trailing `=`).
 		if p.peek().kind != tkColon {
-			props = append(props, ObjectProp{Key: key, Value: &Ident{Name: key}})
+			var value Node = &Ident{Name: key}
+			if p.peek().kind == tkAssign {
+				p.advance()
+				def, err := p.parseAssignment()
+				if err != nil {
+					return nil, err
+				}
+				value = &AssignExpr{Op: "=", Target: &Ident{Name: key}, Value: def}
+			}
+			props = append(props, ObjectProp{Key: key, Value: value})
 			continue
 		}
 		p.advance() // ':'

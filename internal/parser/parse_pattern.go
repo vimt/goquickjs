@@ -156,11 +156,15 @@ func coerceExprToPattern(n Node) (Pattern, error) {
 			if prop.Computed || prop.Kind != "" {
 				return nil, fmt.Errorf("parser: computed/accessor keys not supported in destructuring assignment")
 			}
-			t, err := coerceExprToPatternTarget(prop.Value)
+			// Default value: `{a = 1}` shorthand parses as
+			// `{a: (a = 1)}` — pull the default out and use the
+			// LHS of the AssignExpr as the actual leaf.
+			leaf, def := splitDefault(prop.Value)
+			t, err := coerceExprToPatternTarget(leaf)
 			if err != nil {
 				return nil, err
 			}
-			props = append(props, ObjectPatternProp{Key: prop.Key, Target: t})
+			props = append(props, ObjectPatternProp{Key: prop.Key, Target: t, Default: def})
 		}
 		return &ObjectPattern{Props: props}, nil
 	case *ArrayLit:
@@ -184,15 +188,28 @@ func coerceExprToPattern(n Node) (Pattern, error) {
 				})
 				continue
 			}
-			t, err := coerceExprToPatternTarget(item)
+			leaf, def := splitDefault(item)
+			t, err := coerceExprToPatternTarget(leaf)
 			if err != nil {
 				return nil, err
 			}
-			elems = append(elems, ArrayPatternElem{Target: t})
+			elems = append(elems, ArrayPatternElem{Target: t, Default: def})
 		}
 		return &ArrayPattern{Elements: elems}, nil
 	}
 	return nil, fmt.Errorf("parser: not a destructuring pattern: %T", n)
+}
+
+// splitDefault recognizes the `lhs = default` shape produced when a
+// destructuring slot carries a default value (`[a = 1]`, `{a = 1}`
+// shorthand) — both literal forms parse as an AssignExpr inside the
+// surrounding literal. Returns (lhs, default), or (n, nil) when there
+// is no default to extract.
+func splitDefault(n Node) (Node, Node) {
+	if a, ok := n.(*AssignExpr); ok && a.Op == "=" {
+		return a.Target, a.Value
+	}
+	return n, nil
 }
 
 func coerceExprToPatternTarget(n Node) (PatternTarget, error) {
