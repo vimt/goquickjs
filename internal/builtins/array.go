@@ -315,10 +315,10 @@ func arrayConcat(_ value.Caller, this value.Value, args []value.Value) (value.Va
 }
 
 func arrayJoin(_ value.Caller, this value.Value, args []value.Value) (value.Value, error) {
-	if this.Type() != value.TypeArray {
+	arr, ok := arrayLikeFrom(this)
+	if !ok {
 		return value.Value{}, badThis("Array.prototype.join", "array")
 	}
-	arr := this.AsArray()
 	sep := ","
 	if len(args) >= 1 && args[0].Type() != value.TypeUndefined {
 		sep = args[0].String()
@@ -344,10 +344,10 @@ func arrayJoin(_ value.Caller, this value.Value, args []value.Value) (value.Valu
 }
 
 func arrayIndexOf(_ value.Caller, this value.Value, args []value.Value) (value.Value, error) {
-	if this.Type() != value.TypeArray {
+	arr, ok := arrayLikeFrom(this)
+	if !ok {
 		return value.Value{}, badThis("Array.prototype.indexOf", "array")
 	}
-	arr := this.AsArray()
 	n := arr.Length()
 	target := argOrUndef(args, 0)
 	from := 0
@@ -369,10 +369,10 @@ func arrayIndexOf(_ value.Caller, this value.Value, args []value.Value) (value.V
 }
 
 func arrayLastIndexOf(_ value.Caller, this value.Value, args []value.Value) (value.Value, error) {
-	if this.Type() != value.TypeArray {
+	arr, ok := arrayLikeFrom(this)
+	if !ok {
 		return value.Value{}, badThis("Array.prototype.lastIndexOf", "array")
 	}
-	arr := this.AsArray()
 	n := arr.Length()
 	target := argOrUndef(args, 0)
 	from := n - 1
@@ -394,10 +394,10 @@ func arrayLastIndexOf(_ value.Caller, this value.Value, args []value.Value) (val
 }
 
 func arrayIncludes(_ value.Caller, this value.Value, args []value.Value) (value.Value, error) {
-	if this.Type() != value.TypeArray {
+	arr, ok := arrayLikeFrom(this)
+	if !ok {
 		return value.Value{}, badThis("Array.prototype.includes", "array")
 	}
-	arr := this.AsArray()
 	n := arr.Length()
 	target := argOrUndef(args, 0)
 	from := 0
@@ -434,10 +434,10 @@ func arrayFlat(_ value.Caller, this value.Value, args []value.Value) (value.Valu
 // arrayAt returns the element at idx, supporting negative indices
 // that count from the end (Array.prototype.at).
 func arrayAt(_ value.Caller, this value.Value, args []value.Value) (value.Value, error) {
-	if this.Type() != value.TypeArray {
+	arr, ok := arrayLikeFrom(this)
+	if !ok {
 		return value.Value{}, badThis("Array.prototype.at", "array")
 	}
-	arr := this.AsArray()
 	n := arr.Length()
 	i := intArg(args, 0, 0)
 	if i < 0 {
@@ -566,17 +566,20 @@ func sameValueZero(a, b value.Value) bool {
 // yet implement the optional thisArg). The standard arg order
 // passed to the callback is (element, index, array).
 
-// callbackPair extracts the array receiver and the callback function
-// once per method so the per-method body stays short.
-func callbackPair(this value.Value, args []value.Value, method string) (*value.Array, *value.Function, error) {
-	if this.Type() != value.TypeArray {
-		return nil, nil, badThis("Array.prototype."+method, "array")
+// callbackPair extracts the array-like receiver and the callback
+// function once per method so the per-method body stays short. Accepts
+// any object with `length` — methods like Array.prototype.map are
+// spec-defined as generic over array-like receivers.
+func callbackPair(this value.Value, args []value.Value, method string) (arrayLikeView, *value.Function, error) {
+	v, ok := arrayLikeFrom(this)
+	if !ok {
+		return arrayLikeView{}, nil, badThis("Array.prototype."+method, "array")
 	}
 	cb := argOrUndef(args, 0)
 	if cb.Type() != value.TypeFunction {
-		return nil, nil, badThis("Array.prototype."+method, "function callback")
+		return arrayLikeView{}, nil, badThis("Array.prototype."+method, "function callback")
 	}
-	return this.AsArray(), cb.AsFunction(), nil
+	return v, cb.AsFunction(), nil
 }
 
 func arrayMap(caller value.Caller, this value.Value, args []value.Value) (value.Value, error) {

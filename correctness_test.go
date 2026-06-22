@@ -304,6 +304,28 @@ func TestObjectCoerceAndGetPrototypeOf(t *testing.T) {
 	}
 }
 
+// The read-side Array.prototype methods accept any object with a
+// numeric `length` and integer-indexed properties — `.call(obj, ...)`
+// patterns from test262 stop crashing.
+func TestArrayPrototypeOnArrayLike(t *testing.T) {
+	cases := map[string]string{
+		`Array.prototype.map.call({length:3, 0:1, 1:2, 2:3}, x => x*x).join(",")`: "1,4,9",
+		`Array.prototype.indexOf.call({length:3, 0:"a", 1:"b", 2:"c"}, "b")`:      "1",
+		`Array.prototype.includes.call({length:3, 0:1, 1:2, 2:3}, 2)`:             "true",
+		`Array.prototype.join.call({length:2, 0:"x", 1:"y"}, "-")`:                "x-y",
+		`Array.prototype.at.call({length:3, 0:"a", 1:"b", 2:"c"}, -1)`:            "c",
+		`Array.prototype.forEach.call({length:2, 0:"x", 1:"y"}, (v,i,o) => 0)`:    "undefined",
+		`Array.prototype.reduce.call({length:3, 0:1, 1:2, 2:3}, (a,b) => a+b, 0)`: "6",
+		// Sparse / missing slots read as undefined.
+		`Array.prototype.map.call({length:3, 0:1, 2:3}, x => x === undefined ? "u" : x).join(",")`: "1,u,3",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,

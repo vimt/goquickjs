@@ -19,6 +19,58 @@ func argOrUndef(args []value.Value, i int) value.Value {
 	return args[i]
 }
 
+// arrayLikeView abstracts a read-side view of either a real Array or
+// an arbitrary array-like object (anything with a `length` property
+// and integer-indexed slots). It lets Array.prototype.X methods that
+// the spec defines via the generic array-like protocol accept e.g.
+// `Array.prototype.map.call({length: 2, 0: 1, 1: 2}, ...)` instead of
+// rejecting with a badThis. Only the read side is modelled — methods
+// that mutate `this` keep their original Array-only fast path.
+type arrayLikeView struct {
+	arr *value.Array
+	obj *value.Object
+}
+
+// arrayLikeFrom returns a view over `this` if it's array-shaped, or
+// (zero, false) otherwise. arguments-like Objects, strings as objects,
+// and the wrapper output of Object(primitive) all qualify.
+func arrayLikeFrom(this value.Value) (arrayLikeView, bool) {
+	switch this.Type() {
+	case value.TypeArray:
+		return arrayLikeView{arr: this.AsArray()}, true
+	case value.TypeObject:
+		return arrayLikeView{obj: this.AsObject()}, true
+	}
+	return arrayLikeView{}, false
+}
+
+// Len reads the array's length. For an Object, missing/non-numeric/NaN
+// length reads as 0 and negative is clamped, matching the spec's
+// ToLength.
+func (v arrayLikeView) Length() int {
+	if v.arr != nil {
+		return v.arr.Length()
+	}
+	n, _ := v.obj.Get("length")
+	if n.Type() != value.TypeNumber {
+		return 0
+	}
+	f := n.AsNumber()
+	if f != f || f < 0 {
+		return 0
+	}
+	return int(f)
+}
+
+// Get fetches index i. Out-of-range / missing reads return undefined.
+func (v arrayLikeView) Get(i int) value.Value {
+	if v.arr != nil {
+		return v.arr.Get(i)
+	}
+	val, _ := v.obj.Get(intToKey(i))
+	return val
+}
+
 // exposeProto builds the Foo.prototype Object that mirrors a builtin's
 // prototype method table (value.ArrayProto, StringProto, NumberProto,
 // FunctionProto). It's read-only as far as method dispatch is concerned
