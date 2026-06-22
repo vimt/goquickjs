@@ -64,6 +64,11 @@ type loopFrame struct {
 	continueJumps []int
 	catchContinue bool
 	label         string
+	// stackItems is the count of operand-stack slots this construct
+	// keeps live across its body (for-of/for-in keep their iterator,
+	// switch keeps its discriminant). Inner try blocks add this to
+	// Handler.Depth so unwinding doesn't drop those slots.
+	stackItems int
 }
 
 type compiler struct {

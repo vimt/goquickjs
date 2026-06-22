@@ -255,10 +255,15 @@ const (
 // Handler describes one try-catch region in a Chunk. A pc lies
 // inside the region iff StartPC <= pc < EndPC; HandlerPC is the
 // catch-clause's entry point, where the throw value is pushed onto
-// the stack as the catch parameter.
+// the stack as the catch parameter. Depth is the operand-stack
+// depth at try-entry, RELATIVE to the enclosing call frame's base —
+// the unwind path truncates valStack to valStackBase+Depth so values
+// an outer construct keeps on the stack (e.g. for-of's iterator)
+// survive a throw from inside the try region. Set by the compiler.
 type Handler struct {
 	StartPC, EndPC int
 	HandlerPC      int
+	Depth          int
 }
 
 
@@ -280,9 +285,10 @@ type Chunk struct {
 }
 
 // AddHandler records a try-region. Called by the compiler after the
-// catch arm has been laid down so HandlerPC is final.
-func (c *Chunk) AddHandler(start, end, handlerPC int) {
-	c.Handlers = append(c.Handlers, Handler{StartPC: start, EndPC: end, HandlerPC: handlerPC})
+// catch arm has been laid down so HandlerPC is final. depth is the
+// operand-stack depth at try-entry, see Handler.Depth.
+func (c *Chunk) AddHandler(start, end, handlerPC, depth int) {
+	c.Handlers = append(c.Handlers, Handler{StartPC: start, EndPC: end, HandlerPC: handlerPC, Depth: depth})
 }
 
 // Emit appends a zero-operand opcode.

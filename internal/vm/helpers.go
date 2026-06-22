@@ -215,7 +215,12 @@ func unwindTo(cur frame, callStack *[]frame, valStack *[]value.Value, ex value.V
 	for {
 		if h := findHandler(cur.chunk.Handlers, cur.ip-1); h != nil {
 			cur.ip = h.HandlerPC
-			*valStack = (*valStack)[:cur.valStackBase]
+			// Truncate to the operand-stack depth recorded at try-entry
+			// (relative to frame base), preserving anything an outer
+			// construct kept on the stack (for-of iterator, switch
+			// discriminant, ...). Then push the exception as the
+			// catch parameter.
+			*valStack = (*valStack)[:cur.valStackBase+h.Depth]
 			*valStack = append(*valStack, ex)
 			return cur, true
 		}
@@ -359,7 +364,17 @@ func setByVal(obj, key, v value.Value) error {
 		value.FunctionSetProp(obj.AsFunction(), keyString(key), v)
 		return nil
 	}
-	return fmt.Errorf("vm: SetByVal on %v: %w", obj.Type(), jserrors.ErrNotImplemented)
+	// null/undefined throw TypeError; other primitives are sloppy-mode
+	// silent no-ops (the wrapper is discarded). Mirrors OpSetProp.
+	switch obj.Type() {
+	case value.TypeNull:
+		return &value.JSThrow{Val: value.MakeError("TypeError",
+			"Cannot set property '"+keyString(key)+"' of null")}
+	case value.TypeUndefined:
+		return &value.JSThrow{Val: value.MakeError("TypeError",
+			"Cannot set property '"+keyString(key)+"' of undefined")}
+	}
+	return nil
 }
 
 // jsModFast hot-path % for the common all-integer case (which `%`

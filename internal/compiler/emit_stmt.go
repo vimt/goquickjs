@@ -234,7 +234,14 @@ func (c *compiler) emitStmt(n parser.Node, keepLastExpr bool) error {
 		// register the handler anyway and immediately rethrow so a
 		// finally clause still runs.
 		handlerPC := len(c.chunk.Code)
-		c.chunk.AddHandler(startPC, endPC, handlerPC)
+		// Sum the operand-stack slots enclosing constructs leave live
+		// across the try body — for-of/for-in iterators, switch
+		// discriminants. The VM truncates to base+depth on throw.
+		depth := 0
+		for _, l := range c.loops {
+			depth += l.stackItems
+		}
+		c.chunk.AddHandler(startPC, endPC, handlerPC, depth)
 		if x.CatchBody != nil {
 			c.enterScope()
 			if x.CatchParam != "" {
@@ -552,7 +559,10 @@ func (c *compiler) emitIterLoop(name string, body parser.Node) error {
 		return err
 	}
 
-	lf := &loopFrame{catchContinue: true, label: c.pendingLabel}; c.pendingLabel = ""
+	// stackItems=1 — emitForOf/emitForIn leave the iterator on the
+	// operand stack across the whole loop body, so a try/catch inside
+	// the body must preserve that slot when it unwinds.
+	lf := &loopFrame{catchContinue: true, label: c.pendingLabel, stackItems: 1}; c.pendingLabel = ""
 	c.loops = append(c.loops, lf)
 	defer func() { c.loops = c.loops[:len(c.loops)-1] }()
 
@@ -617,7 +627,10 @@ func (c *compiler) emitSwitch(x *parser.SwitchStmt) error {
 	if err := c.emit(x.Discriminant); err != nil {
 		return err
 	}
-	lf := &loopFrame{catchContinue: false, label: c.pendingLabel}; c.pendingLabel = ""
+	// stackItems=1 — switch keeps the discriminant on the stack
+	// across all case bodies (it's popped at the end), so a try
+	// inside a case must preserve it.
+	lf := &loopFrame{catchContinue: false, label: c.pendingLabel, stackItems: 1}; c.pendingLabel = ""
 	c.loops = append(c.loops, lf)
 
 	// Phase 1: probes. We dup the discriminant once per case (the

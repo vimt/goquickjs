@@ -1236,8 +1236,29 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 				obj.AsObject().SetCached(&cur.chunk.SetCaches[icIdx], name, val)
 			case value.TypeFunction:
 				value.FunctionSetProp(obj.AsFunction(), name, val)
+			case value.TypeNull, value.TypeUndefined:
+				// Spec: PutValue on null/undefined throws TypeError in
+				// every mode (the wrapper toObject step has nothing to
+				// coerce).
+				what := "null"
+				if obj.Type() == value.TypeUndefined {
+					what = "undefined"
+				}
+				ex := value.MakeError("TypeError",
+					"Cannot set property '"+name+"' of "+what)
+				newCur, handled := unwindTo(cur, &callStack, &valStack, ex)
+				if !handled {
+					return value.Value{}, &value.JSThrow{Val: ex}
+				}
+				cur = newCur
+				continue
 			default:
-				return value.Value{}, fmt.Errorf("vm: SetProp on %v: %w", obj.Type(), jserrors.ErrNotImplemented)
+				// Sloppy-mode primitive assignment (number/string/bool):
+				// the value is coerced to a temporary wrapper, the write
+				// hits that wrapper, the wrapper is discarded — observable
+				// effect is a no-op, and the assignment's completion is
+				// the rhs (push below). Strict mode would TypeError; we
+				// run sloppy.
 			}
 			push(val)
 
@@ -1456,6 +1477,14 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			key := pop()
 			obj := pop()
 			if err := setByVal(obj, key, x); err != nil {
+				if t, ok := err.(*value.JSThrow); ok {
+					newCur, handled := unwindTo(cur, &callStack, &valStack, t.Val)
+					if !handled {
+						return value.Value{}, t
+					}
+					cur = newCur
+					continue
+				}
 				return value.Value{}, err
 			}
 			push(x)

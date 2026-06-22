@@ -19,3 +19,7 @@ benchmark/benchmark
 CLAUDE.md
 *.prof
 cpu.prof
+
+# Throwaway test262 analysis tools (not part of the library)
+cmd/t262scan/
+cmd/t262one/

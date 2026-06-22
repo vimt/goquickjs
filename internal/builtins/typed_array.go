@@ -65,10 +65,20 @@ func installTypedArrays(globals map[string]value.Value) {
 }
 
 func arrayBufferConstruct(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {
-	n := intArg(args, 0, 0)
-	if n < 0 {
-		return value.Value{}, &value.JSThrow{Val: makeError("RangeError", "ArrayBuffer: negative length")}
+	// Spec allows length up to 2^53-1 but real allocations must fit in
+	// host memory; the test262 overflow cases probe lengths near 2^53
+	// or 2^32 expecting a RangeError, NOT a host panic. We cap at a
+	// generous 1 GiB — anything larger fails cleanly. Negative or
+	// non-finite lengths are also RangeErrors per spec.
+	const maxABLen = 1 << 30
+	var nF float64
+	if len(args) > 0 {
+		nF = args[0].AsNumber()
 	}
+	if nF != nF || nF < 0 || nF > maxABLen { // NaN, neg, oversize
+		return value.Value{}, &value.JSThrow{Val: makeError("RangeError", "ArrayBuffer: invalid length")}
+	}
+	n := int(nF)
 	buf := value.NewObject()
 	abStorage[buf] = make([]byte, n)
 	buf.Set("byteLength", value.Number(float64(n)))
@@ -96,10 +106,17 @@ func typedArrayConstruct(kind taKind, args []value.Value) (value.Value, error) {
 	a0 := argOrUndef(args, 0)
 	switch a0.Type() {
 	case value.TypeNumber, value.TypeUndefined:
+		// Cap byteLength to keep oversized requests as RangeError
+		// instead of host panic (cf. ArrayBuffer constructor).
+		const maxABLen = 1 << 30
 		n := intArg(args, 0, 0)
+		bpe := kind.bytesPerElem()
+		if n < 0 || n > maxABLen/bpe {
+			return value.Value{}, &value.JSThrow{Val: makeError("RangeError", "TypedArray: invalid length")}
+		}
 		buf := value.NewObject()
-		abStorage[buf] = make([]byte, n*kind.bytesPerElem())
-		buf.Set("byteLength", value.Number(float64(n*kind.bytesPerElem())))
+		abStorage[buf] = make([]byte, n*bpe)
+		buf.Set("byteLength", value.Number(float64(n*bpe)))
 		return makeTypedArrayView(kind, buf, 0, n), nil
 	case value.TypeArray:
 		src := a0.AsArray()
