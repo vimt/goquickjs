@@ -198,16 +198,41 @@ func (p *parser) parseClassMember() (ClassMember, error) {
 			}
 		}
 	}
-	if p.peek().kind != tkIdent && p.peek().kind != tkStr {
+	// Accept method names: identifier, string, numeric literal (key
+	// rendered to canonical decimal), or `[expr]` computed key.
+	var name string
+	var keyExpr Node
+	switch p.peek().kind {
+	case tkIdent, tkStr:
+		name = p.advance().text
+	case tkNum:
+		name = formatNumberKey(p.advance().num)
+	case tkLBracket:
+		// Accessors with computed keys would need a runtime variant of
+		// OpDefineGetter/Setter (the current ops take a u16 nameIdx);
+		// skip until needed.
+		if kind != "" {
+			return ClassMember{}, fmt.Errorf("parser: computed accessor name at offset %d", p.peek().pos)
+		}
+		p.advance() // '['
+		ke, err := p.parseAssignment()
+		if err != nil {
+			return ClassMember{}, err
+		}
+		if _, err := p.expect(tkRBracket, "']'"); err != nil {
+			return ClassMember{}, err
+		}
+		keyExpr = ke
+	default:
 		return ClassMember{}, fmt.Errorf("parser: expected method name at offset %d", p.peek().pos)
 	}
-	name := p.advance().text
 	params, body, err := p.parseFunctionTail()
 	if err != nil {
 		return ClassMember{}, err
 	}
 	return ClassMember{
 		Name:          name,
+		KeyExpr:       keyExpr,
 		IsStatic:      isStatic,
 		IsConstructor: !isStatic && name == "constructor" && kind == "",
 		Kind:          kind,

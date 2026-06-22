@@ -264,6 +264,25 @@ func TestDestructuringAssignment(t *testing.T) {
 	}
 }
 
+// Classes accept computed `[expr]`, numeric, and string method names
+// (plain methods; computed accessors still need new bytecode).
+func TestClassMethodKeys(t *testing.T) {
+	cases := map[string]string{
+		`class C { [("foo")]() { return 7; } } new C().foo()`:                    "7",
+		`var k="m"; class C { [k]() { return 1; } } new C().m()`:                 "1",
+		`class C { 1() { return "one"; } } new C()[1]()`:                         "one",
+		`class C { "x y"() { return 9; } } new C()["x y"]()`:                     "9",
+		`var k="g"; class C { static [k]() { return "S"; } } C.g()`:              "S",
+		// Computed key may shadow an inherited name when the receiver type matches.
+		`var k="toString"; class C { [k]() { return "OWN"; } } new C().toString()`: "OWN",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,

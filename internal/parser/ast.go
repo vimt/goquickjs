@@ -328,8 +328,12 @@ type ClassDecl struct {
 }
 
 // ClassMember is one method or constructor inside a class body.
+// KeyExpr (when non-nil) is a computed `[expr]` method name; Name is
+// empty and the compiler emits a runtime SetByVal store. Numeric /
+// string literal keys are normalised into Name at parse time.
 type ClassMember struct {
 	Name          string
+	KeyExpr       Node
 	IsStatic      bool
 	IsConstructor bool
 	Kind          string // "" / "get" / "set"

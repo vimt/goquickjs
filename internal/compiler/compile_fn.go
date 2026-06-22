@@ -239,6 +239,17 @@ func (c *compiler) emitClassDecl(x *parser.ClassDecl, keepLastExpr bool) error {
 		if !m.IsStatic {
 			c.chunk.EmitGetProp(c.chunk.AddConstant(value.String("prototype")))
 		}
+		// Computed key `[expr]() {}`: evaluate key first so SetByVal
+		// sees [obj, key, fn]. Static keys still use the SetProp path.
+		if m.KeyExpr != nil {
+			if err := c.emit(m.KeyExpr); err != nil {
+				return err
+			}
+			c.chunk.EmitU16(bytecode.OpClosure, c.chunk.AddConstant(value.FunctionVal(methodFn)))
+			c.chunk.Emit(bytecode.OpSetByVal)
+			c.chunk.Emit(bytecode.OpPop)
+			continue
+		}
 		c.chunk.EmitU16(bytecode.OpClosure, c.chunk.AddConstant(value.FunctionVal(methodFn)))
 		nameIdx := c.chunk.AddConstant(value.String(m.Name))
 		switch m.Kind {
