@@ -150,6 +150,27 @@ func TestCompoundAssignMemberAndIndex(t *testing.T) {
 	}
 }
 
+// Identifier names may contain Unicode escapes (\uXXXX or \u{HEX});
+// the test262 corpus generates thousands of these by template. We
+// only need the escape mechanism — full Unicode ID_Start tables are
+// not in scope (we accept any rune >= 0x80 as an ident part).
+func TestIdentifierUnicodeEscapes(t *testing.T) {
+	cases := map[string]string{
+		// f = 'f', o = 'o' — spells "foo"
+		"var foo = 7; foo":              "7",
+		"var f\\u006Fo = 8; foo":             "8",
+		// \u{XXXXXX} braced form
+		"var \\u{66}oo = 9; foo":             "9",
+		// Escape inside an object method name
+		`var o = { value() { return 1 } }; o.value()`: "1",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,

@@ -328,6 +328,150 @@ func isIdentStart(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c
 func isIdentPart(c byte) bool  { return isIdentStart(c) || isDigit(c) }
 func isSpace(c byte) bool      { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
 
+// scanIdent reads an IdentifierName starting at src[i], decoding any
+// \uXXXX / \u{XXXXXX} escapes inline. Returns the textual identifier
+// (with escapes resolved to their UTF-8 form) and the offset of the
+// first byte past the identifier. Errors on a stray backslash that
+// isn't followed by a valid Unicode escape.
+func scanIdent(src string, i int) (string, int, error) {
+	start := i
+	var buf []byte // allocated lazily — most identifiers have no escapes
+	j := i
+	first := true
+	for j < len(src) {
+		c := src[j]
+		if c == '\\' {
+			// \uXXXX or \u{XXXXXX}
+			if j+1 >= len(src) || src[j+1] != 'u' {
+				return "", j, fmt.Errorf("parser: bad identifier escape at %d", j)
+			}
+			r, n, err := readUnicodeEscape(src, j)
+			if err != nil {
+				return "", j, err
+			}
+			if first && !isUnicodeIdentStart(r) || !first && !isUnicodeIdentPart(r) {
+				return "", j, fmt.Errorf("parser: escape %U is not an identifier %s at %d",
+					r, ternary(first, "start", "part"), j)
+			}
+			if buf == nil {
+				buf = append(buf, src[start:j]...)
+			}
+			buf = appendRune(buf, r)
+			j += n
+			first = false
+			continue
+		}
+		if first {
+			if !isIdentStart(c) {
+				break
+			}
+		} else if !isIdentPart(c) {
+			break
+		}
+		if buf != nil {
+			buf = append(buf, c)
+		}
+		j++
+		first = false
+	}
+	if buf != nil {
+		return string(buf), j, nil
+	}
+	return string(src[start:j]), j, nil
+}
+
+// readUnicodeEscape parses the \uXXXX or \u{HEX} form starting at
+// src[i] (must point at the leading backslash). Returns the decoded
+// rune and the byte length of the escape (including the backslash).
+func readUnicodeEscape(src string, i int) (rune, int, error) {
+	// caller ensures src[i] == '\\' && src[i+1] == 'u'
+	if i+2 < len(src) && src[i+2] == '{' {
+		k := i + 3
+		var v rune
+		count := 0
+		for k < len(src) && src[k] != '}' {
+			d, ok := hexDigit(src[k])
+			if !ok {
+				return 0, 0, fmt.Errorf("parser: bad \\u{} escape at %d", i)
+			}
+			v = v<<4 | rune(d)
+			count++
+			if count > 6 || v > 0x10ffff {
+				return 0, 0, fmt.Errorf("parser: \\u{} escape out of range at %d", i)
+			}
+			k++
+		}
+		if k >= len(src) || src[k] != '}' || count == 0 {
+			return 0, 0, fmt.Errorf("parser: unterminated \\u{} escape at %d", i)
+		}
+		return v, k - i + 1, nil
+	}
+	if i+5 >= len(src) {
+		return 0, 0, fmt.Errorf("parser: truncated \\u escape at %d", i)
+	}
+	var v rune
+	for k := 0; k < 4; k++ {
+		d, ok := hexDigit(src[i+2+k])
+		if !ok {
+			return 0, 0, fmt.Errorf("parser: bad \\uXXXX escape at %d", i)
+		}
+		v = v<<4 | rune(d)
+	}
+	return v, 6, nil
+}
+
+func hexDigit(c byte) (int, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0'), true
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10, true
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10, true
+	}
+	return 0, false
+}
+
+// appendRune appends r as UTF-8 to dst. Equivalent to utf8.EncodeRune
+// into an appended slice, inlined to avoid the import.
+func appendRune(dst []byte, r rune) []byte {
+	switch {
+	case r < 0x80:
+		return append(dst, byte(r))
+	case r < 0x800:
+		return append(dst, byte(0xc0|r>>6), byte(0x80|r&0x3f))
+	case r < 0x10000:
+		return append(dst, byte(0xe0|r>>12), byte(0x80|(r>>6)&0x3f), byte(0x80|r&0x3f))
+	}
+	return append(dst, byte(0xf0|r>>18), byte(0x80|(r>>12)&0x3f), byte(0x80|(r>>6)&0x3f), byte(0x80|r&0x3f))
+}
+
+// Minimal Unicode ID predicates — we don't ship the full ID_Start /
+// ID_Continue tables (multi-KB). Accept ASCII identifier chars plus
+// any rune above 0x80 — close enough for test262 identifier escapes
+// (which use ASCII-mapped escapes overwhelmingly) without dragging
+// in the Unicode tables.
+func isUnicodeIdentStart(r rune) bool {
+	if r < 0x80 {
+		return isIdentStart(byte(r))
+	}
+	return true
+}
+
+func isUnicodeIdentPart(r rune) bool {
+	if r < 0x80 {
+		return isIdentPart(byte(r))
+	}
+	return true
+}
+
+func ternary[T any](b bool, t, f T) T {
+	if b {
+		return t
+	}
+	return f
+}
+
 func tokenize(src string) ([]token, error) {
 	var toks []token
 	i := 0
@@ -405,12 +549,12 @@ func tokenize(src string) ([]token, error) {
 			}
 			toks = append(toks, token{kind: tkNum, num: f, pos: i})
 			i = j
-		case isIdentStart(c):
-			j := i
-			for j < len(src) && isIdentPart(src[j]) {
-				j++
+		case isIdentStart(c) || c == '\\':
+			name, j, err := scanIdent(src, i)
+			if err != nil {
+				return nil, err
 			}
-			toks = append(toks, token{kind: tkIdent, text: src[i:j], pos: i})
+			toks = append(toks, token{kind: tkIdent, text: name, pos: i})
 			i = j
 		case c == '"' || c == '\'':
 			s, end, err := scanString(src, i)
