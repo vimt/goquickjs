@@ -932,6 +932,14 @@ func (p *parser) parseArrayLit() (Node, error) {
 				break
 			}
 		}
+		// Hole — `[,]`, `[1, , 3]`, `[, , 1]`. Each repeated comma
+		// without an element introduces an `undefined` slot in the
+		// constructed Array; destructuring patterns translate holes
+		// to "skip this slot" via splitDefault later.
+		if p.peek().kind == tkComma {
+			items = append(items, nil)
+			continue
+		}
 		if p.peek().kind == tkEllipsis {
 			p.advance()
 			arg, err := p.parseAssignment()

@@ -16,6 +16,28 @@ func (c *compiler) emitDestructure(pat parser.Pattern, src symRef, srcName strin
 	return c.emitDestructureMode(pat, src, srcName, bindDeclare)
 }
 
+// emitForBind consumes TOS — the current iteration value pulled from
+// the iterator — and writes it to the assignment-style for-of / for-in
+// LHS. Supports an existing identifier or a destructuring pattern.
+func (c *compiler) emitForBind(target parser.Node) error {
+	switch t := target.(type) {
+	case *parser.Ident:
+		ref := c.resolve(t.Name)
+		return c.emitStore(ref, t.Name)
+	case parser.Pattern:
+		name := c.tempName()
+		tmp, err := c.declare(name)
+		if err != nil {
+			return err
+		}
+		if err := c.emitStore(tmp, name); err != nil {
+			return err
+		}
+		return c.emitDestructureAssign(t, tmp, name)
+	}
+	return fmt.Errorf("compiler: unsupported for-of/in target %T", target)
+}
+
 // emitDestructureAssign is the assignment-expression flavour:
 // destructure src into EXISTING bindings (resolved, not declared) so
 // `({a, b} = obj)` writes to the existing a, b. Used by emit_expr.go's

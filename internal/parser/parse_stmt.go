@@ -648,6 +648,31 @@ func (p *parser) parseForStmt() (Node, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Assignment-style for-of / for-in: `for (lhs of/in src) body`.
+			// lhs is one of: an existing identifier, or an Object/Array
+			// literal that we coerce into a Pattern.
+			if p.peek().kind == tkIdent && (p.peek().text == "of" || p.peek().text == "in") {
+				lhs, err := assignTargetFromForInit(e)
+				if err != nil {
+					return nil, err
+				}
+				isOf := p.advance().text == "of"
+				src, err := p.parseExpression()
+				if err != nil {
+					return nil, err
+				}
+				if _, err := p.expect(tkRParen, "')'"); err != nil {
+					return nil, err
+				}
+				body, err := p.parseStatement()
+				if err != nil {
+					return nil, err
+				}
+				if isOf {
+					return &ForOfStmt{AssignTo: lhs, Iterable: src, Body: body}, nil
+				}
+				return &ForInStmt{AssignTo: lhs, Obj: src, Body: body}, nil
+			}
 			init = &ExprStmt{X: e}
 		}
 	}

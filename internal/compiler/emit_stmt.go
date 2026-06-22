@@ -535,7 +535,7 @@ func (c *compiler) emitForIn(x *parser.ForInStmt) error {
 	}
 	c.chunk.Emit(bytecode.OpForInKeys)
 	c.chunk.Emit(bytecode.OpGetIterator)
-	return c.emitIterLoop(x.Name, x.Body)
+	return c.emitIterLoop(x.Name, x.AssignTo, x.Body)
 }
 
 func (c *compiler) emitForOf(x *parser.ForOfStmt) error {
@@ -543,20 +543,25 @@ func (c *compiler) emitForOf(x *parser.ForOfStmt) error {
 		return err
 	}
 	c.chunk.Emit(bytecode.OpGetIterator)
-	return c.emitIterLoop(x.Name, x.Body)
+	return c.emitIterLoop(x.Name, x.AssignTo, x.Body)
 }
 
 // emitIterLoop assumes the iterator value is on top of the stack
 // and emits the same `while (!result.done) bind = result.value`
-// loop body for both for-of and for-in callers.
-func (c *compiler) emitIterLoop(name string, body parser.Node) error {
+// loop body for both for-of and for-in callers. Exactly one of
+// `name` (declaration form) and `assignTo` (assignment form) is set.
+func (c *compiler) emitIterLoop(name string, assignTo parser.Node, body parser.Node) error {
 
 	c.enterScope()
 	defer c.exitScope()
 
-	ref, err := c.declare(name)
-	if err != nil {
-		return err
+	var ref symRef
+	if name != "" {
+		r, err := c.declare(name)
+		if err != nil {
+			return err
+		}
+		ref = r
 	}
 
 	// stackItems=1 — emitForOf/emitForIn leave the iterator on the
@@ -581,8 +586,15 @@ func (c *compiler) emitIterLoop(name string, body parser.Node) error {
 
 	valueIdx := c.chunk.AddConstant(value.String("value"))
 	c.chunk.EmitGetProp(valueIdx)
-	if err := c.emitStore(ref, name); err != nil {
-		return err
+	// Stack: [iter, value]. Consume the value and bind it.
+	if name != "" {
+		if err := c.emitStore(ref, name); err != nil {
+			return err
+		}
+	} else {
+		if err := c.emitForBind(assignTo); err != nil {
+			return err
+		}
 	}
 
 	if err := c.emitStmt(body, false); err != nil {

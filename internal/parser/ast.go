@@ -86,8 +86,15 @@ type ForStmt struct {
 // ForOfStmt is `for (let|var name of iterable) body`. Iterates via
 // the JS iterator protocol — pulls a `next()`-bearing iterator from
 // the iterable, loops binding `.value` to `name` until `.done`.
+// AssignTo is set instead of Name for the assignment-style form
+// `for (existingVar of arr)` / `for ({a, b} of arr)`: the loop value
+// is stored into the existing LHS via emitDestructureAssign-style
+// resolve+store. Pattern destructuring in either flavour goes through
+// AssignTo (set to the Pattern) — declaration destructuring isn't yet
+// supported but the corpus form is overwhelmingly assignment-style.
 type ForOfStmt struct {
-	Name     string
+	Name     string // declaration form (let/var)
+	AssignTo Node   // assignment form: Ident, or Pattern (ObjectPattern/ArrayPattern)
 	Iterable Node
 	Body     Node
 }
@@ -97,9 +104,10 @@ type ForOfStmt struct {
 // strings, per spec). Inherited props deliberately excluded —
 // we'd need to walk the proto chain otherwise.
 type ForInStmt struct {
-	Name string
-	Obj  Node
-	Body Node
+	Name     string
+	AssignTo Node
+	Obj      Node
+	Body     Node
 }
 
 type IfStmt struct {

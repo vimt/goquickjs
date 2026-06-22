@@ -212,6 +212,20 @@ func splitDefault(n Node) (Node, Node) {
 	return n, nil
 }
 
+// assignTargetFromForInit validates that an expression is a legal
+// assignment target for the assignment-style for-of / for-in head
+// (`for (LHS of src)`). Coerces ObjectLit/ArrayLit to Pattern so the
+// loop emit code can use emitDestructureAssign.
+func assignTargetFromForInit(n Node) (Node, error) {
+	switch n.(type) {
+	case *Ident:
+		return n, nil
+	case *ObjectLit, *ArrayLit:
+		return coerceExprToPattern(n)
+	}
+	return nil, fmt.Errorf("parser: invalid for-of/in target")
+}
+
 func coerceExprToPatternTarget(n Node) (PatternTarget, error) {
 	switch e := n.(type) {
 	case *Ident:

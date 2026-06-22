@@ -196,6 +196,41 @@ func TestPrimitiveCtorsCoerce(t *testing.T) {
 	}
 }
 
+// for-of and for-in in assignment-style: LHS is an existing
+// identifier or a destructuring pattern, not a fresh let/var
+// declaration.
+func TestForOfAssignmentStyle(t *testing.T) {
+	cases := map[string]string{
+		`var sum = 0, x; for (x of [1,2,3]) sum += x; sum`:                "6",
+		`var sum = 0, a, b; for ({a, b} of [{a:1,b:2},{a:3,b:4}]) sum += a + b; sum`: "10",
+		`var sum = 0, x, y; for ([x, y] of [[1,2],[3,4]]) sum += x + y; sum`:         "10",
+		// for-in assignment-style: keys are stringified indices.
+		`var ks = ""; var k; for (k in {a:1, b:2}) ks += k; ks.length`: "2",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
+// Array literals accept hole syntax `[, , 1]`. We materialise holes
+// as undefined slots (spec-strict semantics distinguishes holes from
+// undefined via `in` checks; the corpus rarely relies on that).
+func TestArrayLiteralHoles(t *testing.T) {
+	cases := map[string]string{
+		`[1, , 3].length`:    "3",
+		`[1, , 3][1]`:        "undefined",
+		`[, , , 4].length`:   "4",
+		`[, , , 4][0]`:       "undefined",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 // Destructuring assignment at expression position: parser now coerces
 // `{...}` / `[...]` on the LHS of `=` into a Pattern, and the compiler
 // emits resolve+store (not declare+store).

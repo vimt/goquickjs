@@ -197,6 +197,13 @@ func (c *compiler) emit(n parser.Node) error {
 	case *parser.ArrayLit:
 		c.chunk.Emit(bytecode.OpNewArray)
 		for _, item := range x.Items {
+			if item == nil {
+				// Hole — `[, , 1]`. Push undefined so the slot exists
+				// and indexed reads return undefined per spec.
+				c.chunk.Emit(bytecode.OpConstUndefined)
+				c.chunk.Emit(bytecode.OpArrayPush)
+				continue
+			}
 			if sp, ok := item.(*parser.SpreadElement); ok {
 				if err := c.emit(sp.Arg); err != nil {
 					return err
