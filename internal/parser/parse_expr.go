@@ -267,7 +267,7 @@ func (p *parser) parseRelational() (Node, error) {
 			// it as its own kind.
 			if p.peek().kind == tkIdent && p.peek().text == "instanceof" {
 				op = "instanceof"
-			} else if p.peek().kind == tkIdent && p.peek().text == "in" {
+			} else if p.peek().kind == tkIdent && p.peek().text == "in" && !p.noIn {
 				op = "in"
 			} else {
 				return left, nil

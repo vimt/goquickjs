@@ -644,7 +644,12 @@ func (p *parser) parseForStmt() (Node, error) {
 			}
 			init = n
 		} else {
+			// Suppress `in` as a binop so `for (k in obj)` reads the
+			// loop header instead of an `(k in obj)` BinaryExpr.
+			savedNoIn := p.noIn
+			p.noIn = true
 			e, err := p.parseExpression()
+			p.noIn = savedNoIn
 			if err != nil {
 				return nil, err
 			}

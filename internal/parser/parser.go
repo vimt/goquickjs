@@ -19,6 +19,11 @@ import (
 type parser struct {
 	toks []token
 	pos  int
+	// noIn suppresses `in` as a relational binary operator. Set while
+	// parsing a for-init expression (to support `for (x in obj)`):
+	// `in` there marks the loop header, not a binop. Saved+restored
+	// by callers — never read at any other site.
+	noIn bool
 }
 
 // Parse turns a JS source string into a Program AST.
