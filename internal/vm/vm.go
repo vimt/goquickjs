@@ -1033,7 +1033,13 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			}
 			fnVal := valStack[fnIdx]
 			if fnVal.Type() != value.TypeFunction {
-				return value.Value{}, fmt.Errorf("vm: new on non-function (%v): %w", fnVal.Type(), jserrors.ErrNotImplemented)
+				ex := value.MakeError("TypeError", "value is not a constructor")
+				newCur, handled := unwindTo(cur, &callStack, &valStack, ex)
+				if !handled {
+					return value.Value{}, &value.JSThrow{Val: ex}
+				}
+				cur = newCur
+				continue
 			}
 			fn := fnVal.AsFunction()
 			// Build the new object with proto = fn.prototype. Route
@@ -1296,7 +1302,13 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			}
 			fnVal := valStack[fnIdx]
 			if fnVal.Type() != value.TypeFunction {
-				return value.Value{}, fmt.Errorf("vm: call non-function (%v): %w", fnVal.Type(), jserrors.ErrNotImplemented)
+				ex := value.MakeError("TypeError", "value is not a function")
+				newCur, handled := unwindTo(cur, &callStack, &valStack, ex)
+				if !handled {
+					return value.Value{}, &value.JSThrow{Val: ex}
+				}
+				cur = newCur
+				continue
 			}
 			fn := fnVal.AsFunction()
 			args := valStack[argsStart:]
@@ -1326,7 +1338,13 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			thisVal := valStack[thisIdx]
 			fnVal := valStack[fnIdx]
 			if fnVal.Type() != value.TypeFunction {
-				return value.Value{}, fmt.Errorf("vm: method call non-function (%v): %w", fnVal.Type(), jserrors.ErrNotImplemented)
+				ex := value.MakeError("TypeError", "called value is not a function")
+				newCur, handled := unwindTo(cur, &callStack, &valStack, ex)
+				if !handled {
+					return value.Value{}, &value.JSThrow{Val: ex}
+				}
+				cur = newCur
+				continue
 			}
 			fn := fnVal.AsFunction()
 			args := valStack[argsStart:]
@@ -1402,7 +1420,13 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			argsV := pop()
 			fnVal := pop()
 			if fnVal.Type() != value.TypeFunction {
-				return value.Value{}, fmt.Errorf("vm: NewApply non-function: %w", jserrors.ErrNotImplemented)
+				ex := value.MakeError("TypeError", "value is not a constructor")
+				newCur, handled := unwindTo(cur, &callStack, &valStack, ex)
+				if !handled {
+					return value.Value{}, &value.JSThrow{Val: ex}
+				}
+				cur = newCur
+				continue
 			}
 			if argsV.Type() != value.TypeArray {
 				return value.Value{}, fmt.Errorf("vm: NewApply args not array: %w", jserrors.ErrNotImplemented)
@@ -1443,7 +1467,13 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			thisVal := pop()
 			fnVal := pop()
 			if fnVal.Type() != value.TypeFunction {
-				return value.Value{}, fmt.Errorf("vm: CallApply non-function: %w", jserrors.ErrNotImplemented)
+				ex := value.MakeError("TypeError", "value is not a function")
+				newCur, handled := unwindTo(cur, &callStack, &valStack, ex)
+				if !handled {
+					return value.Value{}, &value.JSThrow{Val: ex}
+				}
+				cur = newCur
+				continue
 			}
 			if argsV.Type() != value.TypeArray {
 				return value.Value{}, fmt.Errorf("vm: CallApply args not array: %w", jserrors.ErrNotImplemented)

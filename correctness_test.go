@@ -94,6 +94,23 @@ func TestSetPropOnPrimitiveIsSilent(t *testing.T) {
 // Oversized ArrayBuffer / TypedArray lengths must surface as JS-level
 // RangeError, not a host panic — embedded libraries are not allowed
 // to crash the host process.
+// Calling or new-ing a non-function must throw a CATCHABLE JS
+// TypeError, not a Go-side ErrNotImplemented. test262 relies on this
+// — assert.throws(TypeError, () => undefined()) is everywhere.
+func TestCallingNonFunctionThrowsCatchableTypeError(t *testing.T) {
+	cases := []string{
+		`try { undefined(); "miss" } catch (e) { e.name }`,
+		`try { (1).foo(); "miss" } catch (e) { e.name }`,            // method call
+		`try { new undefined(); "miss" } catch (e) { e.name }`,      // new
+		`try { Function.prototype.call.call(1); "miss" } catch (e) { e.name }`,
+	}
+	for _, src := range cases {
+		if got := mustEval(t, src); got != "TypeError" {
+			t.Fatalf("%s\n  got %q want TypeError", src, got)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,
