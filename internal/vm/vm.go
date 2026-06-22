@@ -868,6 +868,9 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 
 		case bytecode.OpDup:
 			valStack = append(valStack, valStack[len(valStack)-1])
+		case bytecode.OpDup2:
+			n := len(valStack)
+			valStack = append(valStack, valStack[n-2], valStack[n-1])
 
 		case bytecode.OpLoadThis:
 			valStack = append(valStack, cur.thisVal)

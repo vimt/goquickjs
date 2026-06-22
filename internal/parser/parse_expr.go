@@ -71,9 +71,9 @@ func (p *parser) parseAssignment() (Node, error) {
 	case *Ident:
 		// OK for any op.
 	case *MemberExpr, *IndexExpr:
-		if op != "=" {
-			return nil, fmt.Errorf("parser: compound assignment to member/index: %w", jserrors.ErrNotImplemented)
-		}
+		// Both plain `=` and compound (`+=`, `*=`, `||=`, ...) are
+		// emitted by the compiler — it dups the receiver, loads the
+		// current value, applies the op, then stores back.
 	default:
 		return nil, fmt.Errorf("parser: invalid assignment target: %w", jserrors.ErrNotImplemented)
 	}

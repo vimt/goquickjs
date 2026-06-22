@@ -271,13 +271,25 @@ func (c *compiler) emit(n parser.Node) error {
 				return err
 			}
 		case *parser.MemberExpr:
+			nameIdx := c.chunk.AddConstant(value.String(tgt.Prop))
 			if err := c.emit(tgt.Obj); err != nil {
 				return err
 			}
-			if err := c.emit(x.Value); err != nil {
+			if x.Op == "=" {
+				if err := c.emit(x.Value); err != nil {
+					return err
+				}
+				c.chunk.EmitSetProp(nameIdx)
+				break
+			}
+			// Compound: dup the receiver so we can both load and store
+			// against it. Stack moves: [obj] → [obj,obj] →
+			// [obj,lhs] → [obj,lhs,rhs] → [obj,result] → [result].
+			c.chunk.Emit(bytecode.OpDup)
+			c.chunk.EmitGetProp(nameIdx)
+			if err := c.emitCompoundCombine(x.Op, x.Value); err != nil {
 				return err
 			}
-			nameIdx := c.chunk.AddConstant(value.String(tgt.Prop))
 			c.chunk.EmitSetProp(nameIdx)
 		case *parser.IndexExpr:
 			if err := c.emit(tgt.Obj); err != nil {
@@ -286,7 +298,20 @@ func (c *compiler) emit(n parser.Node) error {
 			if err := c.emit(tgt.Index); err != nil {
 				return err
 			}
-			if err := c.emit(x.Value); err != nil {
+			if x.Op == "=" {
+				if err := c.emit(x.Value); err != nil {
+					return err
+				}
+				c.chunk.Emit(bytecode.OpSetByVal)
+				break
+			}
+			// Compound: Dup2 the obj+key pair so SetByVal still sees
+			// them after GetByVal consumes one pair.
+			// [obj,key] → [obj,key,obj,key] → [obj,key,lhs] →
+			// [obj,key,lhs,rhs] → [obj,key,result] → [result].
+			c.chunk.Emit(bytecode.OpDup2)
+			c.chunk.Emit(bytecode.OpGetByVal)
+			if err := c.emitCompoundCombine(x.Op, x.Value); err != nil {
 				return err
 			}
 			c.chunk.Emit(bytecode.OpSetByVal)
@@ -559,5 +584,40 @@ func (c *compiler) emit(n parser.Node) error {
 	default:
 		return fmt.Errorf("compiler: expr %T: %w", n, jserrors.ErrNotImplemented)
 	}
+	return nil
+}
+
+// emitCompoundCombine is the rhs+op half of `target OP= value` for
+// MemberExpr / IndexExpr targets. Stack on entry: [..., lhs]. Stack on
+// exit: [..., result]. Used by both compound and short-circuit forms.
+func (c *compiler) emitCompoundCombine(op string, rhs parser.Node) error {
+	switch op {
+	case "||=", "&&=", "??=":
+		// Short-circuit: only evaluate rhs and update slot when lhs
+		// fails the test. The Peek variants leave lhs on stack on
+		// skip, so the SetProp/SetByVal store reuses lhs unchanged.
+		var skip int
+		switch op {
+		case "||=":
+			skip = c.chunk.EmitJump(bytecode.OpJumpIfTruePeek)
+		case "&&=":
+			skip = c.chunk.EmitJump(bytecode.OpJumpIfFalsePeek)
+		case "??=":
+			skip = c.chunk.EmitJump(bytecode.OpJumpIfNotNullishPeek)
+		}
+		c.chunk.Emit(bytecode.OpPop)
+		if err := c.emit(rhs); err != nil {
+			return err
+		}
+		return c.chunk.PatchJump(skip)
+	}
+	if err := c.emit(rhs); err != nil {
+		return err
+	}
+	binOp, ok := binaryOps[op[:len(op)-1]]
+	if !ok {
+		return fmt.Errorf("compiler: compound op %q: %w", op, jserrors.ErrNotImplemented)
+	}
+	c.chunk.Emit(binOp)
 	return nil
 }

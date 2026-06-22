@@ -129,6 +129,27 @@ func TestBuiltinPrototypesExposed(t *testing.T) {
 	}
 }
 
+// Compound assignment must now work on member / index targets too:
+//   o.x += 1, a[i] *= 2, o.x ||= "default", etc.
+// Previously the parser refused these outright.
+func TestCompoundAssignMemberAndIndex(t *testing.T) {
+	cases := map[string]string{
+		`var o={x:10}; o.x+=5; o.x`:                "15",
+		`var o={x:10}; o.x*=2; o.x`:                "20",
+		`var o={x:0};  o.x||=7; o.x`:               "7",
+		`var o={x:9};  o.x||=99; o.x`:              "9",
+		`var o={x:1};  o.x&&=2; o.x`:               "2",
+		`var o={x:null}; o.x??=3; o.x`:             "3",
+		`var a=[1,2,3]; a[1]-=10; a[1]`:            "-8",
+		`var a=[1,2,3]; a[0]=a[2]+=5; a.join(",")`: "8,2,8",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,

@@ -250,6 +250,12 @@ const (
 	// with the unpacked args, pushes the resulting instance. Same
 	// role for `new` that OpCallApply plays for function calls.
 	OpNewApply
+
+	// OpDup2 duplicates the TWO top stack slots: [a, b] → [a, b, a, b].
+	// Used by compound-assignment lowering for IndexExpr targets,
+	// where the obj+key pair must be both loaded (for the rhs op) and
+	// retained for the eventual SetByVal store.
+	OpDup2
 )
 
 // Handler describes one try-catch region in a Chunk. A pc lies
