@@ -111,6 +111,24 @@ func TestCallingNonFunctionThrowsCatchableTypeError(t *testing.T) {
 	}
 }
 
+// Foo.prototype must be reachable on each major builtin so test262
+// patterns like `String.prototype.charAt.call(thisArg)` work.
+func TestBuiltinPrototypesExposed(t *testing.T) {
+	cases := map[string]string{
+		`typeof Array.prototype.push`:       "function",
+		`typeof String.prototype.charAt`:    "function",
+		`typeof Number.prototype.toString`:  "function",
+		`typeof Function.prototype.call`:    "function",
+		`typeof Object.prototype.hasOwnProperty`: "function",
+		`typeof Boolean.prototype`:          "object",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,

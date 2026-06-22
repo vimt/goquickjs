@@ -19,6 +19,21 @@ func argOrUndef(args []value.Value, i int) value.Value {
 	return args[i]
 }
 
+// exposeProto builds the Foo.prototype Object that mirrors a builtin's
+// prototype method table (value.ArrayProto, StringProto, NumberProto,
+// FunctionProto). It's read-only as far as method dispatch is concerned
+// — instance lookup still goes through the proto map directly — but it
+// lets `Foo.prototype.method` resolve in user code and supports
+// .call/.apply against arbitrary receivers (each method's own badThis
+// check enforces the receiver type).
+func exposeProto(table map[string]*value.Function) value.Value {
+	o := value.NewObject()
+	for name, fn := range table {
+		o.Set(name, value.FunctionVal(fn))
+	}
+	return value.ObjectVal(o)
+}
+
 // argNumber returns args[i] coerced to float64; missing → NaN
 // (matches what `Math.abs()` does in real QuickJS).
 func argNumber(args []value.Value, i int) float64 {

@@ -22,6 +22,9 @@ func installArray(globals map[string]value.Value) {
 	ctor.Set("isArray", nativeFn("isArray", 1, arrayIsArray))
 	ctor.Set("from", nativeFn("from", 1, arrayFrom))
 	ctor.Set("of", nativeFn("of", 0, arrayOf))
+	// Array.prototype: see exposeProto. Required so test262 patterns
+	// like `Array.prototype.X.call(thisArg)` resolve the method.
+	ctor.Set("prototype", exposeProto(value.ArrayProto))
 	globals["Array"] = value.ObjectVal(ctor)
 }
 

@@ -70,6 +70,7 @@ func Install(globals map[string]value.Value) {
 	installMap(globals)
 	installDate(globals)
 	installJSON(globals)
+	installFunctionAndBoolean(globals)
 	installSymbol(globals)
 	installRegExp(globals)
 	installPromise(globals)

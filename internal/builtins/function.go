@@ -12,6 +12,21 @@ import (
 	"github.com/vimt/goquickjs/internal/value"
 )
 
+// installFunctionAndBoolean attaches the Function and Boolean
+// constructors to globals. They currently exist only for their
+// .prototype reflection surface (no `new Function(...)` /
+// `new Boolean(...)` yet) — enough for test262 patterns that probe
+// `Function.prototype.X` or `typeof Boolean.prototype`.
+func installFunctionAndBoolean(globals map[string]value.Value) {
+	fnCtor := value.NewObject()
+	fnCtor.Set("prototype", exposeProto(value.FunctionProto))
+	globals["Function"] = value.ObjectVal(fnCtor)
+
+	boolCtor := value.NewObject()
+	boolCtor.Set("prototype", value.ObjectVal(value.NewObject()))
+	globals["Boolean"] = value.ObjectVal(boolCtor)
+}
+
 func registerFunctionPrototype() {
 	value.FunctionProto["call"] = &value.Function{Name: "call", Arity: 1, Native: functionCall}
 	value.FunctionProto["apply"] = &value.Function{Name: "apply", Arity: 2, Native: functionApply}

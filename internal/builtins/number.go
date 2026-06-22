@@ -48,6 +48,7 @@ func installNumber(globals map[string]value.Value) {
 	// same name, which we do not have yet).
 	ctor.Set("parseFloat", nativeFn("parseFloat", 1, numberParseFloat))
 	ctor.Set("parseInt", nativeFn("parseInt", 2, numberParseInt))
+	ctor.Set("prototype", exposeProto(value.NumberProto))
 
 	globals["Number"] = value.ObjectVal(ctor)
 }

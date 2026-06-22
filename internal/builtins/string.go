@@ -24,6 +24,7 @@ func installString(globals map[string]value.Value) {
 	// Static methods.
 	ctor.Set("fromCharCode", nativeFn("fromCharCode", 1, strFromCharCode))
 	ctor.Set("fromCodePoint", nativeFn("fromCodePoint", 1, strFromCodePoint))
+	ctor.Set("prototype", exposeProto(value.StringProto))
 	globals["String"] = value.ObjectVal(ctor)
 }
 
