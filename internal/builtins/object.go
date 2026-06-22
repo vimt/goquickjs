@@ -24,7 +24,14 @@ func installObject(globals map[string]value.Value) {
 	proto.Set("toString", nativeFn("toString", 0, objectProtoToString))
 	proto.Set("valueOf", nativeFn("valueOf", 0, objectProtoValueOf))
 
-	ctor := value.NewObject()
+	// Object is callable: `Object(x)` returns x unchanged when x is
+	// already a non-null/undefined object; null/undefined produce a
+	// fresh empty object; primitives are passed through (real spec
+	// boxes them into wrapper objects, which goquickjs does not yet
+	// distinguish — the corpus pattern that breaks on this is rare).
+	fn := &value.Function{Name: "Object", Arity: 1, Native: objectCoerce}
+	fn.Props = value.NewObject()
+	ctor := fn.Props
 	ctor.Set("prototype", value.ObjectVal(proto))
 	ctor.Set("keys", nativeFn("keys", 1, objectKeys))
 	ctor.Set("values", nativeFn("values", 1, objectValues))
@@ -42,7 +49,22 @@ func installObject(globals map[string]value.Value) {
 	ctor.Set("getOwnPropertyDescriptor", nativeFn("getOwnPropertyDescriptor", 2, objectGetOwnPropertyDescriptor))
 	ctor.Set("is", nativeFn("is", 2, objectIs))
 	ctor.Set("groupBy", nativeFn("groupBy", 2, objectGroupBy))
-	globals["Object"] = value.ObjectVal(ctor)
+	globals["Object"] = value.FunctionVal(fn)
+}
+
+// objectCoerce implements `Object(x)`: ToObject for non-null/undefined
+// values, a fresh empty Object otherwise. Primitives are returned
+// as-is (we don't yet model wrapper objects); the most common corpus
+// pattern is `Object(receiver)` as an identity guard.
+func objectCoerce(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {
+	if len(args) == 0 {
+		return value.ObjectVal(value.NewObject()), nil
+	}
+	v := args[0]
+	if v.Type() == value.TypeUndefined || v.Type() == value.TypeNull {
+		return value.ObjectVal(value.NewObject()), nil
+	}
+	return v, nil
 }
 
 // objectKeys returns the own enumerable string keys of obj in
@@ -174,14 +196,61 @@ func objectCreate(_ value.Caller, _ value.Value, args []value.Value) (value.Valu
 // spec's ToObject coercion failure for undefined/null).
 func objectGetPrototypeOf(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {
 	v := argOrUndef(args, 0)
-	if v.Type() != value.TypeObject {
-		return value.Value{}, &value.JSThrow{Val: makeError("TypeError", "Object.getPrototypeOf: argument is not an Object")}
+	switch v.Type() {
+	case value.TypeUndefined, value.TypeNull:
+		return value.Value{}, &value.JSThrow{Val: makeError("TypeError", "Object.getPrototypeOf: argument is null/undefined")}
+	case value.TypeObject:
+		p := v.AsObject().Proto()
+		if p == nil {
+			return value.Null(), nil
+		}
+		return value.ObjectVal(p), nil
+	case value.TypeArray:
+		// Real Array.prototype lives in value.ArrayProto's table; the
+		// global Array.prototype Object mirror is what user code
+		// reaches for typeof/etc — return that when available.
+		return primitiveProto("Array"), nil
+	case value.TypeString:
+		return primitiveProto("String"), nil
+	case value.TypeNumber:
+		return primitiveProto("Number"), nil
+	case value.TypeBool:
+		return primitiveProto("Boolean"), nil
+	case value.TypeFunction:
+		return primitiveProto("Function"), nil
 	}
-	p := v.AsObject().Proto()
-	if p == nil {
-		return value.Null(), nil
+	return value.Null(), nil
+}
+
+// primitiveProto fetches the `.prototype` Object that exposeProto set
+// on each constructor. Returns null if missing — should only happen
+// during very early init.
+func primitiveProto(name string) value.Value {
+	// The constructors live in the per-Eval globals map, which we
+	// can't reach from a built-in without the Caller — but the proto
+	// table itself is package-level. Build a one-shot mirror.
+	switch name {
+	case "Array":
+		return value.ObjectVal(mirrorProto(value.ArrayProto))
+	case "String":
+		return value.ObjectVal(mirrorProto(value.StringProto))
+	case "Number":
+		return value.ObjectVal(mirrorProto(value.NumberProto))
+	case "Function":
+		return value.ObjectVal(mirrorProto(value.FunctionProto))
 	}
-	return value.ObjectVal(p), nil
+	return value.ObjectVal(value.NewObject())
+}
+
+// mirrorProto is a per-call dup of exposeProto for the rare callers
+// (getPrototypeOf on a primitive) that don't have the cached ctor in
+// hand. Cheap since it's not on the hot path.
+func mirrorProto(table map[string]*value.Function) *value.Object {
+	o := value.NewObject()
+	for name, fn := range table {
+		o.Set(name, value.FunctionVal(fn))
+	}
+	return o
 }
 
 // objectSetPrototypeOf rewires obj.[[Prototype]] to proto (Object or

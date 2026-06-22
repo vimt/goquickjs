@@ -283,6 +283,27 @@ func TestClassMethodKeys(t *testing.T) {
 	}
 }
 
+// Object is callable for `Object(x)` (spec ToObject identity for
+// already-object values, fresh object for null/undefined, primitives
+// pass through unwrapped). getPrototypeOf accepts primitives by
+// returning the mirror of the corresponding builtin prototype.
+func TestObjectCoerceAndGetPrototypeOf(t *testing.T) {
+	cases := map[string]string{
+		`typeof Object`:                                  "function",
+		`Object(1) === 1`:                                "true",
+		`typeof Object()`:                                "object",
+		`typeof Object(null)`:                            "object",
+		`typeof Object.getPrototypeOf(1)`:                "object",
+		`typeof Object.getPrototypeOf("x").charAt`:       "function",
+		`typeof Object.getPrototypeOf([1,2]).push`:       "function",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,
