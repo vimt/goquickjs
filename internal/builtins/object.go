@@ -310,15 +310,44 @@ func objectHasOwn(_ value.Caller, _ value.Value, args []value.Value) (value.Valu
 // get/set installs an accessor pair via Object.SetAccessor.
 func objectDefineProperty(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {
 	v := argOrUndef(args, 0)
-	if v.Type() != value.TypeObject {
-		return value.Value{}, &value.JSThrow{Val: makeError("TypeError", "Object.defineProperty: target is not an Object")}
-	}
 	key := argString(args, 1)
 	desc := argOrUndef(args, 2)
 	if desc.Type() != value.TypeObject {
 		return value.Value{}, &value.JSThrow{Val: makeError("TypeError", "Object.defineProperty: descriptor is not an Object")}
 	}
 	d := desc.AsObject()
+	// Array target: indexed slot writes + length truncation; ignore
+	// accessor descriptors (the corpus exercises data descriptors for
+	// arrays). Anything beyond `length` and integer-string keys falls
+	// through to a no-op since Arrays don't carry arbitrary
+	// string-keyed own properties in this engine.
+	if v.Type() == value.TypeArray {
+		arr := v.AsArray()
+		valV, _ := d.GetOwn("value")
+		if i, ok := stringAsArrayIndex(key); ok {
+			// Auto-extend length if needed (mirror direct `arr[i] = v`).
+			for arr.Length() <= i {
+				arr.Push(value.Undefined())
+			}
+			arr.Set(i, valV)
+			return v, nil
+		}
+		if key == "length" {
+			n := int(valV.AsNumber())
+			if n < 0 || float64(n) != valV.AsNumber() {
+				return value.Value{}, &value.JSThrow{Val: makeError("RangeError", "Invalid array length")}
+			}
+			for arr.Length() < n {
+				arr.Push(value.Undefined())
+			}
+			arr.Truncate(n)
+			return v, nil
+		}
+		return v, nil
+	}
+	if v.Type() != value.TypeObject {
+		return value.Value{}, &value.JSThrow{Val: makeError("TypeError", "Object.defineProperty: target is not an Object")}
+	}
 	getV, hasGet := d.GetOwn("get")
 	setV, hasSet := d.GetOwn("set")
 	if hasGet || hasSet {
@@ -338,6 +367,30 @@ func objectDefineProperty(_ value.Caller, _ value.Value, args []value.Value) (va
 	}
 	v.AsObject().Set(key, val)
 	return v, nil
+}
+
+// stringAsArrayIndex parses a canonical-integer key like "0", "12" into
+// a non-negative int. "01" or "1.5" are not array indices per spec —
+// only canonical decimal-integer forms.
+func stringAsArrayIndex(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	if s == "0" {
+		return 0, true
+	}
+	if s[0] < '1' || s[0] > '9' {
+		return 0, false
+	}
+	n := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, true
 }
 
 // objectGetOwnPropertyDescriptor returns a fresh descriptor object for
