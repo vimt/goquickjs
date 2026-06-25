@@ -1074,7 +1074,10 @@ func (v *VM) invoke(fn *value.Function, this value.Value, args []value.Value, ge
 			}
 			// Spec: if the constructor returned an object, use it;
 			// otherwise the freshly created instance is the result.
-			if ret.Type() == value.TypeObject {
+			// Array / Function returns count as objects in the JS
+			// sense (typeof !== "object" doesn't matter here; what
+			// matters is they are reference types per spec).
+			if isConstructorReturn(ret) {
 				push(ret)
 			} else {
 				push(thisVal)

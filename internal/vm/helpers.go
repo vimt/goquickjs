@@ -184,6 +184,17 @@ func stringAsIndex(s string) (int, bool) {
 // left side's [[Prototype]] chain looking for it. Returns false if
 // either side doesn't supply what's needed (instead of erroring; the
 // dispatch site has already validated fn is a Function).
+// isConstructorReturn reports whether a value returned from a
+// constructor body should replace the freshly-created `this`. Per spec
+// "Object" here means reference type — Array and Function qualify too.
+func isConstructorReturn(v value.Value) bool {
+	switch v.Type() {
+	case value.TypeObject, value.TypeArray, value.TypeFunction:
+		return true
+	}
+	return false
+}
+
 func jsInstanceof(left value.Value, fn *value.Function) bool {
 	// Built-in kind matching: Array, Function, Object, RegExp, Date,
 	// Error don't share an Object [[Prototype]] slot with the
