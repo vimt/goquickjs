@@ -18,14 +18,23 @@ import (
 // support, but `.prototype` is reachable so reflection-style probes
 // work).
 func installFunctionAndBoolean(globals map[string]value.Value) {
-	fnCtor := value.NewObject()
-	fnCtor.Set("prototype", exposeProto(value.FunctionProto))
-	globals["Function"] = value.ObjectVal(fnCtor)
+	// Function is callable so `f instanceof Function` and
+	// `typeof Function === "function"` work; the construction form
+	// (compiling a source-text function) is not yet supported and
+	// throws a clear TypeError when invoked.
+	fnCtor := &value.Function{Name: "Function", Arity: 0, Native: functionCtorUnsupported}
+	fnCtor.Props = value.NewObject()
+	fnCtor.Props.Set("prototype", exposeProto(value.FunctionProto))
+	globals["Function"] = value.FunctionVal(fnCtor)
 
 	boolFn := &value.Function{Name: "Boolean", Arity: 1, Native: booleanCoerce}
 	boolFn.Props = value.NewObject()
 	boolFn.Props.Set("prototype", value.ObjectVal(value.NewObject()))
 	globals["Boolean"] = value.FunctionVal(boolFn)
+}
+
+func functionCtorUnsupported(_ value.Caller, _ value.Value, _ []value.Value) (value.Value, error) {
+	return value.Value{}, &value.JSThrow{Val: makeError("TypeError", "Function: dynamic source compilation not supported")}
 }
 
 func booleanCoerce(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {

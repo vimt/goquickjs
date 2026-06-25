@@ -15,17 +15,42 @@ import (
 )
 
 func installArray(globals map[string]value.Value) {
-	// Array constructor: a namespace object today (we do not yet
-	// support `new Array(...)` or `Array(...)` as a call). Static
-	// methods get hung off it.
-	ctor := value.NewObject()
+	// Array is a callable constructor: `Array(n)` builds an array of
+	// length n (single-numeric-arg form); `Array(a, b, c)` builds a
+	// literal-like array. `new Array(...)` lands on the same Native
+	// because OpNewApply only checks for value.TypeFunction.
+	fn := &value.Function{Name: "Array", Arity: 1, Native: arrayConstruct}
+	fn.Props = value.NewObject()
+	ctor := fn.Props
 	ctor.Set("isArray", nativeFn("isArray", 1, arrayIsArray))
 	ctor.Set("from", nativeFn("from", 1, arrayFrom))
 	ctor.Set("of", nativeFn("of", 0, arrayOf))
 	// Array.prototype: see exposeProto. Required so test262 patterns
 	// like `Array.prototype.X.call(thisArg)` resolve the method.
 	ctor.Set("prototype", exposeProto(value.ArrayProto))
-	globals["Array"] = value.ObjectVal(ctor)
+	globals["Array"] = value.FunctionVal(fn)
+}
+
+// arrayConstruct handles both `Array(...)` and `new Array(...)`:
+//   - 1 numeric arg → fresh array of that length (slots undefined).
+//   - any other argc → elements verbatim.
+func arrayConstruct(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {
+	out := value.NewArray()
+	if len(args) == 1 && args[0].Type() == value.TypeNumber {
+		n := args[0].AsNumber()
+		ni := int(n)
+		if ni < 0 || float64(ni) != n {
+			return value.Value{}, &value.JSThrow{Val: makeError("RangeError", "Invalid array length")}
+		}
+		for i := 0; i < ni; i++ {
+			out.Push(value.Undefined())
+		}
+		return value.ArrayVal(out), nil
+	}
+	for _, a := range args {
+		out.Push(a)
+	}
+	return value.ArrayVal(out), nil
 }
 
 func arrayIsArray(_ value.Caller, _ value.Value, args []value.Value) (value.Value, error) {

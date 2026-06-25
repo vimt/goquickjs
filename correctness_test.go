@@ -326,6 +326,34 @@ func TestArrayPrototypeOnArrayLike(t *testing.T) {
 	}
 }
 
+// Array and Function are now callable Functions so they're typeof
+// "function" and survive the RHS check of `instanceof`. instanceof
+// falls back to a kind-name match for built-ins whose instances
+// don't share a JS-level [[Prototype]] slot with their constructor.
+func TestArrayAndFunctionAsConstructors(t *testing.T) {
+	cases := map[string]string{
+		`typeof Array`:                          "function",
+		`typeof Function`:                       "function",
+		// Array(n) ⇒ length-n array; Array(a, b) ⇒ literal.
+		`Array(3).length`:                       "3",
+		`Array(1, 2).join(",")`:                 "1,2",
+		`new Array(2).length`:                   "2",
+		// instanceof: primitives stay false, references match by kind.
+		`[] instanceof Array`:                   "true",
+		`[] instanceof Object`:                  "true",
+		`(function(){}) instanceof Function`:    "true",
+		`(function(){}) instanceof Object`:      "true",
+		`({}) instanceof Object`:                "true",
+		`1 instanceof Number`:                   "false",
+		`"x" instanceof String`:                 "false",
+	}
+	for src, want := range cases {
+		if got := mustEval(t, src); got != want {
+			t.Fatalf("%s\n  got %q want %q", src, got, want)
+		}
+	}
+}
+
 func TestOversizedArrayBufferRangeError(t *testing.T) {
 	for _, src := range []string{
 		`try { new ArrayBuffer(2 ** 53); "miss" } catch (e) { e.name }`,

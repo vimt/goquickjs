@@ -185,6 +185,22 @@ func stringAsIndex(s string) (int, bool) {
 // either side doesn't supply what's needed (instead of erroring; the
 // dispatch site has already validated fn is a Function).
 func jsInstanceof(left value.Value, fn *value.Function) bool {
+	// Built-in kind matching: Array, Function, Object, RegExp, Date,
+	// Error don't share an Object [[Prototype]] slot with the
+	// constructor's `prototype`. Match by the constructor's name so
+	// `[] instanceof Array` etc. give the spec answer without
+	// requiring a per-type proto rewire.
+	switch fn.Name {
+	case "Array":
+		return left.Type() == value.TypeArray
+	case "Function":
+		return left.Type() == value.TypeFunction
+	case "Object":
+		// `x instanceof Object` is true for any non-null/undefined
+		// reference type — arrays, functions, objects all qualify.
+		t := left.Type()
+		return t == value.TypeObject || t == value.TypeArray || t == value.TypeFunction
+	}
 	if fn.Props == nil {
 		return false
 	}
